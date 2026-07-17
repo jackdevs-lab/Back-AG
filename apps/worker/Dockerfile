@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
-# Install OpenSSL dependencies required by Prisma
-RUN apk add --no-cache openssl openssl1.1-compat
+# Install ONLY the necessary OpenSSL package for Alpine
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 
@@ -18,8 +18,5 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate
 RUN pnpm build
 
-# Expose port
-EXPOSE 3000
-
-# Start application
-CMD ["pnpm", "--filter", "@qb-health/api", "start"]
+# Start worker (Fixed to use @qb-health/worker)
+CMD ["pnpm", "--filter", "@qb-health/worker", "start"]
