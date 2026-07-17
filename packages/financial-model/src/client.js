@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.prisma = void 0;
+const client_1 = require("@prisma/client");
+exports.prisma = global.prisma || new client_1.PrismaClient({
+    log: process.env.NODE_ENV === 'development'
+        ? ['query', 'info', 'warn', 'error']
+        : ['error'],
+    errorFormat: 'pretty'
+});
+if (process.env.NODE_ENV !== 'production') {
+    global.prisma = exports.prisma;
+}
+exports.default = exports.prisma;
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiY2xpZW50LmpzIiwic291cmNlUm9vdCI6IiIsInNvdXJjZXMiOlsiY2xpZW50LnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiI7OztBQUFBLDJDQUE4QztBQU9qQyxRQUFBLE1BQU0sR0FBRyxNQUFNLENBQUMsTUFBTSxJQUFJLElBQUkscUJBQVksQ0FBQztJQUNwRCxHQUFHLEVBQUUsT0FBTyxDQUFDLEdBQUcsQ0FBQyxRQUFRLEtBQUssYUFBYTtRQUN2QyxDQUFDLENBQUMsQ0FBQyxPQUFPLEVBQUUsTUFBTSxFQUFFLE1BQU0sRUFBRSxPQUFPLENBQUM7UUFDcEMsQ0FBQyxDQUFDLENBQUMsT0FBTyxDQUFDO0lBQ2YsV0FBVyxFQUFFLFFBQVE7Q0FDeEIsQ0FBQyxDQUFDO0FBRUgsSUFBSSxPQUFPLENBQUMsR0FBRyxDQUFDLFFBQVEsS0FBSyxZQUFZLEVBQUUsQ0FBQztJQUN4QyxNQUFNLENBQUMsTUFBTSxHQUFHLGNBQU0sQ0FBQztBQUMzQixDQUFDO0FBRUQsa0JBQWUsY0FBTSxDQUFDIiwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgUHJpc21hQ2xpZW50IH0gZnJvbSAnQHByaXNtYS9jbGllbnQnO1xyXG5pbXBvcnQgeyBsb2dnZXIgfSBmcm9tICdAcWItaGVhbHRoL3V0aWxzJztcclxuXHJcbmRlY2xhcmUgZ2xvYmFsIHtcclxuICAgIHZhciBwcmlzbWE6IFByaXNtYUNsaWVudCB8IHVuZGVmaW5lZDtcclxufVxyXG5cclxuZXhwb3J0IGNvbnN0IHByaXNtYSA9IGdsb2JhbC5wcmlzbWEgfHwgbmV3IFByaXNtYUNsaWVudCh7XHJcbiAgICBsb2c6IHByb2Nlc3MuZW52Lk5PREVfRU5WID09PSAnZGV2ZWxvcG1lbnQnXHJcbiAgICAgICAgPyBbJ3F1ZXJ5JywgJ2luZm8nLCAnd2FybicsICdlcnJvciddXHJcbiAgICAgICAgOiBbJ2Vycm9yJ10sXHJcbiAgICBlcnJvckZvcm1hdDogJ3ByZXR0eSdcclxufSk7XHJcblxyXG5pZiAocHJvY2Vzcy5lbnYuTk9ERV9FTlYgIT09ICdwcm9kdWN0aW9uJykge1xyXG4gICAgZ2xvYmFsLnByaXNtYSA9IHByaXNtYTtcclxufVxyXG5cclxuZXhwb3J0IGRlZmF1bHQgcHJpc21hOyJdfQ==

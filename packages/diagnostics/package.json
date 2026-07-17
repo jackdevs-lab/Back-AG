@@ -1,0 +1,14 @@
+{
+    "name": "@qb-health/diagnostics",
+    "version": "1.0.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "dependencies": {
+        "@qb-health/financial-model": "workspace:*",
+        "@qb-health/rule-engine": "workspace:*"
+    }
+}

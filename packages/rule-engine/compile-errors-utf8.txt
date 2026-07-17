@@ -1,0 +1,12 @@
+﻿src/core/pipeline-runner.ts(109,78): error TS2345: Argument of type 'any' is not assignable to parameter of type 'never'.
+src/engine.ts(68,10): error TS2724: '"./rules/ap/duplicate-bill-payment"' has no exported member named 'DuplicateBillPaymentRule'. Did you mean 'DuplicateBillPaymentsRule'?
+src/rules/ap/orphaned-bill-payment.ts(51,23): error TS2322: Type '{ qbId: string; vendorName: {}; amount: number; currency: string; date: Date; fingerprint: string; missingBillIds: string[]; }[]' is not assignable to type 'OrphanedReportFinding[]'.
+  Type '{ qbId: string; vendorName: {}; amount: number; currency: string; date: Date; fingerprint: string; missingBillIds: string[]; }' is not assignable to type 'OrphanedReportFinding'.
+    Types of property 'vendorName' are incompatible.
+      Type '{}' is not assignable to type 'string'.
+src/rules/ap/payment-before-bill.ts(51,23): error TS2322: Type '{ vendorName: {}; amount: number; currency: string; paymentId: string; billId: string; paymentDate: Date; billDate: Date; fingerprint: string; }[]' is not assignable to type 'AnomalyReportFinding[]'.
+  Type '{ vendorName: {}; amount: number; currency: string; paymentId: string; billId: string; paymentDate: Date; billDate: Date; fingerprint: string; }' is not assignable to type 'AnomalyReportFinding'.
+    Types of property 'vendorName' are incompatible.
+      Type '{}' is not assignable to type 'string'.
+src/rules/ap/vendor-credits-not-applied.ts(6,10): error TS2724: '"../../core/data/vendor-credits-not-applied"' has no exported member named 'fetchVendorCredits'. Did you mean 'FetchVendorCreditsParams'?
+src/rules/ap/vendor-credits-not-applied.ts(6,47): error TS2305: Module '"../../core/data/vendor-credits-not-applied"' has no exported member 'fetchSyncLogs'.

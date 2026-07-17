@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  PAST_DUE
+}
+
+model Tenant {
+  id          String          @id @default(uuid())
+  name        String
+  email       String          @unique
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  diagnostics DiagnosticRun[]
+  connections QbConnection[]
+  users       User[]
+
+  @@index([email])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  tenantId  String
+  email     String
+  role      String   @default("USER")
+  createdAt DateTime @default(now())
+  password  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model QbConnection {
+  id           String          @id @default(uuid())
+  tenantId     String
+  realmId      String          @unique
+  companyName  String?
+  accessToken  String
+  refreshToken String
+  tokenExpiry  DateTime
+  lastSyncAt   DateTime?
+  syncStatus   String          @default("IDLE")
+  isActive     Boolean         @default(true)
+  subscriptionStatus SubscriptionStatus @default(INACTIVE)
+  paystackCustCode   String?
+  paystackPlanCode   String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  timezone           String          @default("UTC")
+  diagnostics        DiagnosticRun[]
+  scanCredits        Int             @default(10)
+  lastTransactionRef      String?
+  issues             Issue[]
+  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lastSyncMessage    String?        @db.Text
+  @@index([tenantId])
+  @@index([realmId])
+}
+
+model RuleFinding {
+  id           String   @id @default(uuid())
+  realmId      String
+  ruleId       String
+  qbId         String
+  syncToken    Int      @default(0)
+  findingData  Json
+  createdAt    DateTime @default(now())
+
+  @@unique([realmId, ruleId, qbId, syncToken])
+  @@index([realmId, ruleId])
+  @@index([qbId])
+}
+
+model Account {
+  id        String   @id @default(uuid())
+  realmId   String
+  qbId      String
+  name      String
+  type      String
+  subType   String?
+  currency  String   @default("USD")
+  active    Boolean  @default(true)
+  balance   Decimal  @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([realmId, qbId])
+  @@index([realmId])
+  @@index([realmId, type])
+}
+
+model Transaction {
+  id         String   @id
+  realmId    String
+  qbId       String
+  type       String
+  date       DateTime
+  amount     Decimal
+  status     String
+  isReconciled Boolean  @default(false)
+  categoryId String?
+  customerId String?
+  vendorId   String?
+  rawData    Json
+  syncToken  Int      @default(0)
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@unique([realmId, qbId])
+  @@unique([date, id])
+  @@index([realmId])
+  @@index([realmId, type])
+  @@index([realmId, date])
+  @@index([realmId, status])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  realmId   String
+  qbId      String
+  name      String
+  email     String?
+  phone     String?
+  active    Boolean  @default(true)
+  balance   Decimal  @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([realmId, qbId])
+  @@index([realmId])
+  @@index([realmId, name])
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  realmId   String
+  qbId      String
+  name      String
+  email     String?
+  active    Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([realmId, qbId])
+  @@index([realmId])
+}
+
+model DiagnosticRun {
+  id           String            @id @default(uuid())
+  tenantId     String
+  runAt        DateTime          @default(now())
+  healthScore  Int
+  status       String            @default("COMPLETED")
+  errorMessage String?
+  metadata     Json?
+  connectionId String
+  checks       DiagnosticCheck[]
+  connection   QbConnection?     @relation(fields: [connectionId], references: [id])
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  issues       Issue[]
+
+  @@index([tenantId, connectionId])
+  @@index([connectionId])
+  @@index([runAt])
+}
+
+model DiagnosticCheck {
+  id         String        @id @default(uuid())
+  runId      String
+  ruleId     String
+  ruleName   String
+  category   String
+  severity   String?
+  status     String
+  message    String?
+  durationMs Int?
+  createdAt  DateTime      @default(now())
+  run        DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([ruleId])
+}
+
+model Issue {
+  id           String        @id @default(uuid())
+  connectionId String
+  runId        String
+  ruleId       String
+  ruleName     String
+  severity     String
+  message      String
+  fingerprint  String?
+  entities     Json
+  isResolved   Boolean       @default(false)
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  connection   QbConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  run          DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([runId])
+  @@index([ruleId])
+  @@index([severity])
+  @@index([fingerprint])
+  @@index([connectionId, isResolved])
+}
+
+model SyncLog {
+  id            String   @id @default(uuid())
+  realmId       String
+  entityType    String
+  recordsSynced Int
+  durationMs    Int
+  status        String
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@index([realmId])
+  @@index([createdAt])
+}
+
+model BankTransaction {
+  id          String   @id @default(uuid())
+  realmId     String
+  qbId        String
+  accountId   String
+  date        DateTime
+  amount      Decimal
+  description String?
+  payee       String?
+  status      String
+  rawData     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([realmId, qbId])
+  @@index([realmId])
+  @@index([accountId])
+  @@index([date])
+}
+
+model Reconciliation {
+  id             String    @id @default(uuid())
+  realmId        String
+  qbId           String
+  accountId      String
+  startDate      DateTime?
+  endDate        DateTime
+  openingBalance Decimal
+  closingBalance Decimal
+  status         String
+  rawData        Json
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([realmId, qbId])
+  @@index([realmId])
+  @@index([accountId])
+  @@index([endDate])
+}
+
+model RuleConfig {
+  realmId   String
+  ruleId    String
+  json      Json @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@id([realmId, ruleId])
+  @@index([realmId])
+}

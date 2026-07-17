@@ -1,0 +1,51 @@
+﻿Bill Date In Future|Detects bills with dates later than the current date.
+Bill Payment Without Bill|Detects bill payments that are not linked to any bills.
+Bill Without Vendor|Detects bills that are not assigned to any vendor.
+Duplicate Bill Payments|Detects multiple bill payments from the same vendor with the same reference number and amount.
+Duplicate Vendor Bills|Detects multiple bills from the same vendor with the same reference number and amount.
+Expense Recorded Instead of Bill Payment|Detects direct expenses recorded for vendors who have open bills of the same amount.
+Duplicate Bills (Same Amount Window)|Detects multiple bills from the same vendor with identical amounts within a configurable day window.
+Negative Accounts Payable Balance|Detects vendors or bills with a negative balance in Accounts Payable.
+Orphaned Bill Payments|Detects bill payments linked to bills that no longer exist in QuickBooks.
+Payment Date Before Bill Date|Detects bill payments that are dated before the bill they apply to.
+Unapplied Vendor Credits|Detects vendor credits with a significant unapplied balance.
+Customer Credit (No Invoice History)|Detects customers who have a credit balance but have no invoices recorded.
+Duplicate Customer Invoices|Detects multiple invoices sent to the same customer with identical dates and amounts.
+Duplicate Customer Payments|Detects multiple customer payments with identical dates and amounts, which may indicate double-recording.
+Invoice Date In Future|Detects invoices with a date in the future, which can misrepresent your current Accounts Receivable.
+Invoice Line Direct To Account|Detects invoices with lines coded directly to accounts instead of products/services.
+Invoice Without Customer|Detects invoices that are not assigned to any customer.
+Multiple Invoices (Same Amount)|Detects high-frequency invoices for the same customer and amount.
+Negative AR Balance|Detects customers with an overall negative Accounts Receivable balance.
+Orphaned Customer Payment|Detects customer payments that are not linked to any invoices.
+Over-Applied Customer Payment|Detects customer payments where the total applied amount exceeds the payment value.
+Overdue Customer Invoice|Detects customer invoices that are past their due date and still have a balance.
+Payment Date Before Invoice|Detects customer payments that are dated before the invoices they are linked to.
+Payment Without Invoice|Detects customer payments that are not linked to any invoices.
+Unapplied Customer Credit Memos|Detects customer credit memos that have a remaining balance and haven\
+AP Control Account Mismatch|Detects discrepancies between open vendor bills and the Accounts Payable control account balance.
+AR Control Account Mismatch|Flag discrepancies between the total of all individual customer balances and the Accounts Receivable control account balance on the Balance Sheet.
+Linked Transaction Inconsistency|Detects broken internal links between transactions across major categories (Payment, Invoice, Bill, CreditMemo).
+Transaction with Deleted Account Reference|Detects transactions that reference an account ID which no longer exists in the Chart of Accounts.
+Journal Entry Without Name|Detects journal entries where lines are missing a required Customer, Vendor, or Employee name.
+Unbalanced Journal Entries|Detects journal entries where debits do not equal credits
+Deposit Without Customer Reference|Detects bank deposits that are not linked to a customer on any of the line items.
+Duplicate Deposits|Detects duplicate Deposit transactions using multi-dimensional matching.
+Incorrect Deposit Recording|Flags customer payments recorded as deposits instead of through the proper payment workflow.
+Old Uncleared Check|Detects checks that were issued more than 180 days ago but have not been cleared in reconciliation.
+Orphaned Deposit Line|Detects deposit lines that reference source transactions (Payments/Receipts) which no longer exist.
+Undeposited Funds Aging > 30 Days|Detects payments and sales receipts sitting in Undeposited Funds for more than 30 days.
+Undeposited Funds Grouping|Ensures customer payments are routed through "Undeposited Funds" for proper bank matching.
+Unreconciled Transaction Aging|Detects bank transactions that have remained unreconciled for more than 60 days.
+Duplicate Customers|Detects potential duplicate customer records by name.
+Duplicate Vendors|Detects potential duplicate vendor records by name.
+Expense Without Vendor|Detects expenses that are not associated with any vendor.
+High Journal Entry Usage|Detects over-reliance on manual Journal Entries compared to standard automated workflows.
+Inactive Customers with Open Balances|Detects customers who are marked as inactive but still have a non-zero balance on the ledger.
+Large Transaction Outlier|Detects transactions that are unusually large compared to historical averages.
+Suspicious Round Number Transaction|Detects large transactions with suspiciously round amounts that may indicate estimated or fraudulent entries.
+Transaction Without Memo|Detects transactions that do not have a memo or description.
+Unapplied Customer Payments|Detects payments that have not been applied to any invoice.
+Uncategorized Transactions|Detects transactions posted to uncategorized or placeholder accounts.
+Deposit Line Sum Mismatch|Detects deposits where the sum of line amounts does not match the deposit total.
+Payment Not To Undeposited Funds|Detects payments that bypass the Undeposited Funds account and go directly to a bank account.

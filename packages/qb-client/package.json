@@ -1,0 +1,19 @@
+{
+    "name": "@qb-health/qb-client",
+    "version": "1.0.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "dependencies": {
+        "@qb-health/financial-model": "workspace:*",
+        "@qb-health/utils": "workspace:*",
+        "axios": "^1.6.2",
+        "axios-retry": "^4.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0"
+    }
+}

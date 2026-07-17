@@ -1,0 +1,35 @@
+{
+    "name": "qb-health-monitor",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "pnpm -r --parallel dev",
+        "build": "pnpm -r build",
+        "test": "pnpm -r test",
+        "lint": "eslint . --ext .ts",
+        "db:migrate": "pnpm --filter @qb-health/financial-model run prisma:migrate",
+        "db:generate": "pnpm --filter @qb-health/financial-model run prisma:generate",
+        "docker:up": "docker-compose -f infrastructure/docker/docker-compose.yml up -d",
+        "docker:down": "docker-compose -f infrastructure/docker/docker-compose.yml down"
+    },
+    "devDependencies": {
+        "@types/bcryptjs": "^3.0.0",
+        "@types/node": "^20.10.0",
+        "@typescript-eslint/eslint-plugin": "^6.13.0",
+        "@typescript-eslint/parser": "^6.13.0",
+        "eslint": "^8.55.0",
+        "prettier": "^3.1.0",
+        "typescript": "^5.3.2"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    },
+    "dependencies": {
+        "@clerk/backend": "^3.4.5",
+        "@types/nodemailer": "^7.0.11",
+        "D": "^1.0.0",
+        "bcryptjs": "^3.0.3",
+        "dotenv": "^17.3.1",
+        "tsx": "^4.21.0"
+    }
+}

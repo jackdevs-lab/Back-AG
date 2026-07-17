@@ -1,0 +1,26 @@
+{
+    "name": "@qb-health/rule-engine",
+    "version": "1.0.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "dependencies": {
+        "@qb-health/financial-model": "workspace:*",
+        "@qb-health/ingestion": "workspace:*",
+        "@qb-health/qb-client": "workspace:*",
+        "@qb-health/utils": "workspace:*",
+        "decimal.js": "^10.4.3",
+        "lru-cache": "^11.3.4",
+        "luxon": "^3.7.2",
+        "opossum": "^9.0.0",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@prisma/client": "^5.22.0",
+        "@types/luxon": "^3.7.1",
+        "@types/opossum": "^8.1.9"
+    }
+}

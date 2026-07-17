@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: qb-postgres
+    environment:
+      POSTGRES_USER: qb_user
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: qb_health
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qb_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: qb-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../../
+      dockerfile: apps/api/Dockerfile
+    container_name: qb-api
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://neondb_owner:npg_gkUm0sB4vnLP@ep-still-poetry-amijpf81-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../apps/api:/app/apps/api
+      - ../../packages:/app/packages
+
+  worker:
+    build:
+      context: ../../
+      dockerfile: apps/worker/Dockerfile
+    container_name: qb-worker
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://neondb_owner:npg_gkUm0sB4vnLP@ep-still-poetry-amijpf81-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../apps/worker:/app/apps/worker
+      - ../../packages:/app/packages
+
+volumes:
+  pgdata:
+  redisdata:

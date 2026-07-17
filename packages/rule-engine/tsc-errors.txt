@@ -1,0 +1,12 @@
+﻿src/rules/ap/expense-instead-of-bill-payment.ts(81,82): error TS2322: Type 'null' is not assignable to type 'string | StringFilter<"Transaction"> | undefined'.
+src/rules/ap/multiple-bills-same-amount.ts(63,78): error TS2322: Type 'null' is not assignable to type 'string | StringFilter<"Transaction"> | undefined'.
+src/rules/ap/orphaned-bill-payment.ts(81,82): error TS2322: Type 'null' is not assignable to type 'string | StringFilter<"Transaction"> | undefined'.
+src/rules/ap/payment-before-bill.ts(81,82): error TS2322: Type 'null' is not assignable to type 'string | StringFilter<"Transaction"> | undefined'.
+src/rules/ap/payment-before-bill.ts(107,40): error TS2339: Property 'date' does not exist on type '{}'.
+src/rules/ap/payment-before-bill.ts(108,60): error TS2339: Property 'date' does not exist on type '{}'.
+src/rules/ap/payment-before-bill.ts(114,52): error TS2339: Property 'date' does not exist on type '{}'.
+src/rules/ap/payment-before-bill.ts(116,73): error TS2339: Property 'amount' does not exist on type '{}'.
+src/rules/ap/vendor-credits-not-applied.ts(63,78): error TS2322: Type 'null' is not assignable to type 'string | StringFilter<"Transaction"> | undefined'.
+src/types.ts(10,18): error TS2430: Interface 'HardenedPrisma' incorrectly extends interface 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+  Types of property 'ruleFinding' are incompatible.
+    Type '{ findMany(args: any): Promise<any[]>; createMany(args: { data: any[]; skipDuplicates?: boolean | undefined; }): Promise<{ count: number; }>; count(args?: any): Promise<number>; }' is missing the following properties from type 'RuleFindingDelegate<DefaultArgs>': findUnique, findUniqueOrThrow, findFirst, findFirstOrThrow, and 10 more.

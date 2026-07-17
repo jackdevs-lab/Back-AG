@@ -1,0 +1,20 @@
+{
+    "name": "@qb-health/financial-model",
+    "version": "1.0.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w",
+        "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
+        "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma"
+    },
+    "dependencies": {
+        "@prisma/client": "^5.7.0",
+        "@qb-health/utils": "workspace:*",
+        "prisma": "^5.7.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0"
+    }
+}

@@ -1,0 +1,5 @@
+﻿src/engine.ts(166,21): error TS2741: Property 'ruleConfig' is missing in type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>' but required in type 'HardenedPrisma'.
+src/engine.ts(222,13): error TS2741: Property 'ruleConfig' is missing in type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>' but required in type 'HardenedPrisma'.
+src/types.ts(10,18): error TS2430: Interface 'HardenedPrisma' incorrectly extends interface 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+  Types of property 'ruleFinding' are incompatible.
+    Type '{ findMany(args: any): Promise<any[]>; createMany(args: { data: any[]; skipDuplicates?: boolean | undefined; }): Promise<{ count: number; }>; count(args?: any): Promise<number>; }' is missing the following properties from type 'RuleFindingDelegate<DefaultArgs>': findUnique, findUniqueOrThrow, findFirst, findFirstOrThrow, and 10 more.
