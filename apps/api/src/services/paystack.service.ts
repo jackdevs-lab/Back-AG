@@ -4,22 +4,41 @@ import { prisma } from '@qb-health/financial-model';
 export class PaystackService {
     private static readonly BASE_URL = 'https://api.paystack.co';
 
-    private get isMockBilling(): boolean {
-        return (
-            process.env.NODE_ENV !== 'production' &&
-            process.env.MOCK_BILLING === 'true'
-        );
+    /**
+     * Dynamically selects the correct secret key based on the environment.
+     * Prevents accidental use of test keys in production.
+     */
+    private get secretKey(): string {
+        const isProduction = process.env.NODE_ENV === 'production';
+        const key = isProduction
+            ? process.env.PAYSTACK_LIVE_SECRET_KEY
+            : process.env.PAYSTACK_TEST_SECRET_KEY;
+
+        if (!key) {
+            throw new Error(`PAYSTACK_${isProduction ? 'LIVE' : 'TEST'}_SECRET_KEY is not configured`);
+        }
+        return key;
     }
 
+    private get isMockBilling(): boolean {
+        return process.env.NODE_ENV !== 'production' && process.env.MOCK_BILLING === 'true';
+    }
+
+    /**
+     * Initializes a Paystack transaction for a recurring subscription.
+     * @param planCode The Paystack Plan Code (e.g., 'PLN_xxxxx') from your Paystack Dashboard
+     */
     async initializeTransaction(
         email: string,
         connectionId: string,
         realmId: string,
         clerkUserId: string,
-        packageType: string = '10_scans'
+        planCode: string
     ) {
         if (this.isMockBilling) {
-            const mockActivateUrl = `${process.env.API_BASE_URL || 'http://localhost:3001'}/api/subscriptions/mock-activate?connectionId=${connectionId}&packageType=${packageType}`;
+            const baseUrl = process.env.API_BASE_URL || 'http://localhost:3001/api';
+            const mockActivateUrl = `${baseUrl}/subscriptions/mock-activate?connectionId=${connectionId}&planCode=${planCode}`;
+
             logger.warn('[MOCK_BILLING] Bypassing Paystack. Mock activate URL returned.', { connectionId });
             return {
                 authorization_url: mockActivateUrl,
@@ -28,32 +47,22 @@ export class PaystackService {
             };
         }
 
-        const secretKey = process.env.PAYSTACK_TEST_SECRET_KEY;
-        if (!secretKey) {
-            throw new Error('PAYSTACK_TEST_SECRET_KEY is not configured');
-        }
-
-        let amount = 0;
-        if (packageType === '10_scans') {
-            amount = 2900 * 100;
-        }
-
         try {
+            // Note: Including the 'plan' parameter tells Paystack to treat this as a subscription
             const response = await fetch(`${PaystackService.BASE_URL}/transaction/initialize`, {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${secretKey}`,
+                    Authorization: `Bearer ${this.secretKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     email,
-                    amount,
-                    currency: 'USD',
+                    plan: planCode,
                     metadata: {
                         connectionId,
                         realmId,
                         clerkUserId,
-                        packageBought: packageType
+                        packageBought: planCode
                     }
                 })
             });
@@ -72,25 +81,33 @@ export class PaystackService {
         }
     }
 
-    async mockActivate(connectionId: string, packageType: string = '10_scans'): Promise<void> {
+    /**
+     * Mocks a successful subscription activation for local development/testing.
+     * Updated to reflect the new Prisma schema fields.
+     */
+    async mockActivate(connectionId: string, planCode: string = 'PLN_MOCK'): Promise<void> {
         if (process.env.NODE_ENV === 'production') {
             throw new Error('Mock activation is not available in production');
         }
 
-        let creditsToAdd = 0;
-        if (packageType === '10_scans') creditsToAdd = 10;
+        // Calculate a mock period end (e.g., 30 days from now for monthly)
+        const currentPeriodEnd = new Date();
+        currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
 
         await prisma.qbConnection.update({
             where: { id: connectionId },
             data: {
-                scanCredits: { increment: creditsToAdd },
                 subscriptionStatus: 'ACTIVE',
-                paystackCustCode: 'MOCK_CUSTOMER',
-                paystackPlanCode: 'MOCK_PLAN'
+                paystackSubscriptionCode: 'MOCK_SUB_CODE',
+                paystackPlanCode: planCode,
+                billingCycle: 'MONTHLY',
+                currentPeriodEnd: currentPeriodEnd,
+                // Retaining scan credits logic if still applicable to your flow
+                scanCredits: { increment: 10 }
             }
         });
 
-        logger.warn(`[MOCK_BILLING] Added ${creditsToAdd} credits to connectionId: ${connectionId}`);
+        logger.warn(`[MOCK_BILLING] Activated mock subscription for connectionId: ${connectionId}`);
     }
 }
 

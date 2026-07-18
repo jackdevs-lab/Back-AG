@@ -11,6 +11,7 @@ enum SubscriptionStatus {
   ACTIVE
   INACTIVE
   PAST_DUE
+  CANCELLED
 }
 
 model Tenant {
@@ -53,6 +54,9 @@ model QbConnection {
   subscriptionStatus SubscriptionStatus @default(INACTIVE)
   paystackCustCode   String?
   paystackPlanCode   String?
+  paystackSubscriptionCode String?
+  billingCycle             String?
+  currentPeriodEnd         DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   timezone           String          @default("UTC")
@@ -64,6 +68,8 @@ model QbConnection {
   lastSyncMessage    String?        @db.Text
   @@index([tenantId])
   @@index([realmId])
+  @@index([subscriptionStatus])
+  @@index([currentPeriodEnd])
 }
 
 model RuleFinding {
