@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import { authMiddleware, AuthRequest, clerkClient } from '../middleware/auth';
 import connectionsRouter from './connections';
 import authRouter from './auth';
@@ -15,7 +15,9 @@ const router: Router = Router();
 
 // Public routes
 router.use('/auth', authRouter);
-router.use('/webhooks', webhooksRouter);
+
+// Mounted webhooks router with express.raw() to preserve the raw body for HMAC signature verification
+router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
 
 router.get('/version', (req, res) => {
     res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
@@ -27,7 +29,7 @@ router.use(authMiddleware);
 // QuickBooks OAuth routes (Now protected to ensure JIT provisioning)
 router.get('/qb/auth-url', (req: AuthRequest, res: Response) => {
     const tenantId = req.tenantId; // Use verified tenantId from middleware
-    
+
     logger.info('OAuth URL requested', { tenantId });
     const state = Buffer.from(JSON.stringify({
         tenantId,
@@ -42,14 +44,14 @@ router.post('/connections/quickbooks/callback', async (req: Request, res: Respon
     try {
         const { code, realmId, state } = req.body;
         if (!code || !realmId || !state) throw new AppError('Invalid callback data', 400);
-        
+
         const tokenData = await oauthService.exchangeCodeForToken(code);
         const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
         const tenantId = stateData.tenantId;
 
         // Safety check: Ensure tenant exists before saving connection
         let tenant = await prisma!.tenant.findUnique({ where: { id: tenantId } });
-        
+
         if (!tenant) {
             logger.info(`OAuth Callback: JIT provisioning fallback for tenant ${tenantId}...`);
             try {
