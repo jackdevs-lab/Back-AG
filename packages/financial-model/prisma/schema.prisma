@@ -12,6 +12,7 @@ enum SubscriptionStatus {
   INACTIVE
   PAST_DUE
   CANCELLED
+  CANCELED
 }
 
 model Tenant {
@@ -41,31 +42,32 @@ model User {
 }
 
 model QbConnection {
-  id           String          @id @default(uuid())
-  tenantId     String
-  realmId      String          @unique
-  companyName  String?
-  accessToken  String
-  refreshToken String
-  tokenExpiry  DateTime
-  lastSyncAt   DateTime?
-  syncStatus   String          @default("IDLE")
-  isActive     Boolean         @default(true)
-  subscriptionStatus SubscriptionStatus @default(INACTIVE)
-  paystackCustCode   String?
-  paystackPlanCode   String?
+  id                       String             @id @default(uuid())
+  tenantId                 String
+  realmId                  String             @unique
+  companyName              String?
+  accessToken              String
+  refreshToken             String
+  tokenExpiry              DateTime
+  lastSyncAt               DateTime?
+  syncStatus               String             @default("IDLE")
+  isActive                 Boolean            @default(true)
+  subscriptionStatus       SubscriptionStatus @default(INACTIVE)
+  paystackCustCode         String?
+  paystackPlanCode         String?
   paystackSubscriptionCode String?
   billingCycle             String?
   currentPeriodEnd         DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  timezone           String          @default("UTC")
-  diagnostics        DiagnosticRun[]
-  scanCredits        Int             @default(10)
-  lastTransactionRef      String?
-  issues             Issue[]
-  tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  lastSyncMessage    String?        @db.Text
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  timezone                 String             @default("UTC")
+  diagnostics              DiagnosticRun[]
+  scanCredits              Int                @default(10)
+  lastTransactionRef       String?
+  issues                   Issue[]
+  tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lastSyncMessage          String?            @db.Text
+
   @@index([tenantId])
   @@index([realmId])
   @@index([subscriptionStatus])
@@ -105,21 +107,21 @@ model Account {
 }
 
 model Transaction {
-  id         String   @id
-  realmId    String
-  qbId       String
-  type       String
-  date       DateTime
-  amount     Decimal
-  status     String
+  id           String   @id
+  realmId      String
+  qbId         String
+  type         String
+  date         DateTime
+  amount       Decimal
+  status       String
   isReconciled Boolean  @default(false)
-  categoryId String?
-  customerId String?
-  vendorId   String?
-  rawData    Json
-  syncToken  Int      @default(0)
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
+  categoryId   String?
+  customerId   String?
+  vendorId     String?
+  rawData      Json
+  syncToken    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
 
   @@unique([realmId, qbId])
   @@unique([date, id])
@@ -278,7 +280,7 @@ model Reconciliation {
 model RuleConfig {
   realmId   String
   ruleId    String
-  json      Json @default("{}")
+  json      Json     @default("{}")
   updatedAt DateTime @updatedAt
 
   @@id([realmId, ruleId])
