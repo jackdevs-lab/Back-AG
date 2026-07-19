@@ -4,10 +4,6 @@ import { prisma } from '@qb-health/financial-model';
 export class PaystackService {
     private static readonly BASE_URL = 'https://api.paystack.co';
 
-    /**
-     * Dynamically selects the correct secret key based on the environment.
-     * Prevents accidental use of test keys in production.
-     */
     private get secretKey(): string {
         const isProduction = process.env.NODE_ENV === 'production';
         const key = isProduction
@@ -24,10 +20,6 @@ export class PaystackService {
         return process.env.NODE_ENV !== 'production' && process.env.MOCK_BILLING === 'true';
     }
 
-    /**
-     * Initializes a Paystack transaction for a recurring subscription.
-     * @param planCode The Paystack Plan Code (e.g., 'PLN_xxxxx') from your Paystack Dashboard
-     */
     async initializeTransaction(
         email: string,
         connectionId: string,
@@ -48,7 +40,6 @@ export class PaystackService {
         }
 
         try {
-            // Note: Including the 'plan' parameter tells Paystack to treat this as a subscription
             const response = await fetch(`${PaystackService.BASE_URL}/transaction/initialize`, {
                 method: 'POST',
                 headers: {
@@ -81,16 +72,11 @@ export class PaystackService {
         }
     }
 
-    /**
-     * Mocks a successful subscription activation for local development/testing.
-     * Updated to reflect the new Prisma schema fields.
-     */
     async mockActivate(connectionId: string, planCode: string = 'PLN_MOCK'): Promise<void> {
         if (process.env.NODE_ENV === 'production') {
             throw new Error('Mock activation is not available in production');
         }
 
-        // Calculate a mock period end (e.g., 30 days from now for monthly)
         const currentPeriodEnd = new Date();
         currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
 
@@ -100,9 +86,8 @@ export class PaystackService {
                 subscriptionStatus: 'ACTIVE',
                 paystackSubscriptionCode: 'MOCK_SUB_CODE',
                 paystackPlanCode: planCode,
-                billingCycle: 'MONTHLY',
+                billingCycle: 'monthly',
                 currentPeriodEnd: currentPeriodEnd,
-                // Retaining scan credits logic if still applicable to your flow
                 scanCredits: { increment: 10 }
             }
         });
