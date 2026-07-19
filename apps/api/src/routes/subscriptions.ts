@@ -13,7 +13,7 @@ const router: Router = Router();
 router.post(
     '/checkout',
     body('connectionId').isString().notEmpty().withMessage('connectionId is required'),
-    body('packageType').optional().isString(), // Added optional validation
+    body('planCode').optional().isString(),
     async (req: AuthRequest, res: Response, next) => {
         try {
             const errors = validationResult(req);
@@ -21,8 +21,7 @@ router.post(
                 throw new AppError(errors.array()[0].msg, 400);
             }
 
-            // Default to 10_scans if the frontend hook doesn't pass it yet
-            const { connectionId, packageType = '10_scans' } = req.body;
+            const { connectionId, planCode = 'PLN_DEFAULT' } = req.body;
             const { tenantId, userId } = req;
 
             const connection = await prisma.qbConnection.findUnique({
@@ -44,7 +43,7 @@ router.post(
                 connection.id,
                 connection.realmId,
                 userId || tenantId!,
-                packageType // Passed to the service
+                planCode
             );
 
             res.json({
@@ -67,6 +66,7 @@ router.post(
 router.get(
     '/mock-activate',
     query('connectionId').isString().notEmpty(),
+    query('planCode').optional().isString(),
     async (req: AuthRequest, res: Response, next) => {
         try {
             if (process.env.NODE_ENV === 'production' || process.env.MOCK_BILLING !== 'true') {
@@ -79,7 +79,7 @@ router.get(
             }
 
             const connectionId = req.query.connectionId as string;
-            const packageType = (req.query.packageType as string) || '10_scans';
+            const planCode = (req.query.planCode as string) || 'PLN_DEFAULT';
 
             const connection = await prisma.qbConnection.findUnique({
                 where: { id: connectionId }
@@ -89,7 +89,7 @@ router.get(
                 throw new AppError('Connection not found', 404);
             }
 
-            await paystackService.mockActivate(connectionId, packageType);
+            await paystackService.mockActivate(connectionId, planCode);
 
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
             res.redirect(`${frontendUrl}/connections/success?mock=true&connectionId=${connectionId}`);
