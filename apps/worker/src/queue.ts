@@ -3,7 +3,9 @@ import { Queue, QueueEvents } from 'bullmq';
 import { logger } from '@qb-health/utils';
 
 const redisConfig = {
-    url: process.env.REDIS_URL,
+    host: process.env.REDIS_HOST,
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null
 };
 
