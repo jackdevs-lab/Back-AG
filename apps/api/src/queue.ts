@@ -3,10 +3,10 @@ import { Queue, QueueEvents } from 'bullmq';
 import { EventEmitter } from 'events';
 
 const redisConfig = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
+    url: process.env.REDIS_URL,
     maxRetriesPerRequest: null
 };
+
 
 export const syncQueue = new Queue('qb-sync', { connection: redisConfig });
 export const analysisQueue = new Queue('qb-analysis', { connection: redisConfig });
