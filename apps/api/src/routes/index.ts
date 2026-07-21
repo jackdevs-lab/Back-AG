@@ -10,6 +10,7 @@ import { syncQueue } from '../queue';
 import reportsRouter from './reports';
 import webhooksRouter from './webhooks';
 import subscriptionsRouter from './subscriptions';
+import { prisma } from '@qb-health/financial-model';
 
 const router: Router = Router();
 
@@ -50,7 +51,7 @@ router.post('/connections/quickbooks/callback', async (req: Request, res: Respon
         const tenantId = stateData.tenantId;
 
         // Safety check: Ensure tenant exists before saving connection
-        let tenant = await prisma!.tenant.findUnique({ where: { id: tenantId } });
+        let tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
         if (!tenant) {
             logger.info(`OAuth Callback: JIT provisioning fallback for tenant ${tenantId}...`);
@@ -58,7 +59,7 @@ router.post('/connections/quickbooks/callback', async (req: Request, res: Respon
                 // If it's an organization ID
                 if (tenantId.startsWith('org_')) {
                     const org = await clerkClient.organizations.getOrganization({ organizationId: tenantId });
-                    tenant = await prisma!.tenant.create({
+                    tenant = await prisma.tenant.create({
                         data: {
                             id: tenantId,
                             name: org.name,
@@ -67,7 +68,7 @@ router.post('/connections/quickbooks/callback', async (req: Request, res: Respon
                     });
                 } else if (tenantId.startsWith('user_')) {
                     const user = await clerkClient.users.getUser(tenantId);
-                    tenant = await prisma!.tenant.create({
+                    tenant = await prisma.tenant.create({
                         data: {
                             id: tenantId,
                             name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'New User',
