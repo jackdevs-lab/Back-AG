@@ -14,7 +14,9 @@ syncQueue.on('error', (err: Error) => {
 });
 
 const redisConfig = {
-    url: process.env.REDIS_URL,
+    host: process.env.REDIS_HOST,
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null
 };
 
