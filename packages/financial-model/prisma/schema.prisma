@@ -44,7 +44,7 @@ model User {
 model QbConnection {
   id                       String             @id @default(uuid())
   tenantId                 String
-  realmId                  String             @unique
+  realmId                  String
   companyName              String?
   accessToken              String
   refreshToken             String
@@ -68,7 +68,7 @@ model QbConnection {
   tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lastSyncMessage          String?            @db.Text
 
-  @@index([tenantId])
+  @@unique([tenantId, realmId])
   @@index([realmId])
   @@index([subscriptionStatus])
   @@index([currentPeriodEnd])
