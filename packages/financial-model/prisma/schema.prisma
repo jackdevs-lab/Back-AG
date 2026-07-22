@@ -172,7 +172,7 @@ model DiagnosticRun {
   metadata     Json?
   connectionId String
   checks       DiagnosticCheck[]
-  connection   QbConnection?     @relation(fields: [connectionId], references: [id])
+  connection   QbConnection?     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   issues       Issue[]
 
