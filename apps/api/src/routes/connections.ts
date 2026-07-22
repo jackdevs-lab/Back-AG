@@ -142,6 +142,11 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
+        // ✅ FIX 1: Validate subscription status before allowing a sync trigger
+        if (connection.subscriptionStatus !== 'ACTIVE') {
+            throw new AppError('An active subscription is required to run an audit sync.', 403);
+        }
+
         if (connection.syncStatus === 'SYNCING') {
             throw new AppError('A sync is already in progress for this company.', 409);
         }
