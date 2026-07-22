@@ -94,7 +94,8 @@ export class OAuthService {
                     accessToken: encryptedAccessToken,
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
-                    isActive: true
+                    isActive: true,
+                    subscriptionStatus: 'INACTIVE'
                 },
                 create: {
                     tenantId,
@@ -103,14 +104,15 @@ export class OAuthService {
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
                     isActive: true,
-                    syncStatus: 'IDLE'
+                    syncStatus: 'IDLE',
+                    subscriptionStatus: 'INACTIVE'
                 }
             });
         } catch (error) {
-            logger.error('Failed to save connection to database', { 
-                tenantId, 
-                realmId, 
-                error: error instanceof Error ? error.message : error 
+            logger.error('Failed to save connection to database', {
+                tenantId,
+                realmId,
+                error: error instanceof Error ? error.message : error
             });
             throw error;
         }
@@ -140,9 +142,9 @@ export class OAuthService {
         const expiry = new Date(connection.tokenExpiry);
         const threshold = new Date(now.getTime() + 5 * 60 * 1000);
 
-        logger.info('Token refresh check', { 
-            realmId, 
-            expiry: expiry.toISOString(), 
+        logger.info('Token refresh check', {
+            realmId,
+            expiry: expiry.toISOString(),
             now: now.toISOString(),
             isExpired: expiry < threshold
         });
