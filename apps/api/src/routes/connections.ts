@@ -149,7 +149,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     }
 });
 
-// ✅ FIXED: POST sync trigger (Cooldown removed, relies only on SYNCING status)
+// POST sync trigger 
+// POST sync trigger 
 router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -168,18 +169,32 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('An active subscription is required to run an audit sync.', 403);
         }
 
-        // 2. Prevent overlapping syncs (Replaces the 5-min cooldown)
+        // 2. Prevent overlapping syncs
         if (connection.syncStatus === 'SYNCING') {
             throw new AppError('A sync is already in progress for this company.', 409);
         }
 
-        // 3. Optimistically update status so UI reflects it immediately
+        // 3. 5-Minute Sync Cooldown Check
+        const timeDelta = Date.now() - connection.updatedAt.getTime();
+        const COOLDOWN_MS = 300000; // 5 minutes in milliseconds
+
+        if (timeDelta < COOLDOWN_MS) {
+            const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
+
+            res.status(429).json({
+                error: "Cooldown active",
+                retryAfterSeconds
+            });
+            return; // <-- FIXED: explicitly return void to satisfy TS7030
+        }
+
+        // 4. Optimistically update status so UI reflects it immediately
         await prisma.qbConnection.update({
             where: { id },
             data: { syncStatus: 'SYNCING', lastSyncMessage: null }
         });
 
-        // 4. Queue the sync job
+        // 5. Queue the sync job
         const job = await syncQueue.add('trigger-sync', {
             realmId: connection.realmId,
             tenantId,
