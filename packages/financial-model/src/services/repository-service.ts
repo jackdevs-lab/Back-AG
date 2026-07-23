@@ -37,12 +37,16 @@ export interface AggregateTransactionSumParams {
 export interface BrandedRepository {
     // Connection status
     updateQbConnectionStatus(
+        tenantId: string,
         realmId: RealmId,
         status: BrandedSyncStatus,
         lastSyncAt?: Date
     ): Promise<QbConnection>;
 
-    findQbConnectionByRealmId(realmId: RealmId): Promise<QbConnection | null>;
+    findQbConnectionByRealmId(
+        tenantId: string,
+        realmId: RealmId
+    ): Promise<QbConnection | null>;
 
     // Rule config
     findRuleConfig(realmId: RealmId, ruleId: RuleId): Promise<RuleConfig | null>;
@@ -85,12 +89,18 @@ export class PrismaBrandedRepository implements BrandedRepository {
     // ---- Connection status -------------------------------------------------
 
     async updateQbConnectionStatus(
+        tenantId: string,
         realmId: RealmId,
         status: BrandedSyncStatus,
         lastSyncAt?: Date
     ): Promise<QbConnection> {
         return this.prismaClient.qbConnection.update({
-            where: { realmId: realmId as string },
+            where: {
+                tenantId_realmId: {
+                    tenantId: tenantId,
+                    realmId: realmId as string
+                }
+            },
             data: {
                 syncStatus: status as unknown as string,
                 ...(lastSyncAt !== undefined && { lastSyncAt }),
@@ -98,9 +108,14 @@ export class PrismaBrandedRepository implements BrandedRepository {
         }) as unknown as QbConnection;
     }
 
-    async findQbConnectionByRealmId(realmId: RealmId): Promise<QbConnection | null> {
+    async findQbConnectionByRealmId(tenantId: string, realmId: RealmId): Promise<QbConnection | null> {
         const result = await this.prismaClient.qbConnection.findUnique({
-            where: { realmId: realmId as string },
+            where: {
+                tenantId_realmId: {
+                    tenantId: tenantId,
+                    realmId: realmId as string
+                }
+            },
         });
         return result as unknown as QbConnection | null;
     }
