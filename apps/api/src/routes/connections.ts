@@ -166,7 +166,13 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
 
         // 1. Validate subscription status
         if (connection.subscriptionStatus !== 'ACTIVE') {
-            throw new AppError('An active subscription is required to run an audit sync.', 403);
+            res.status(402).json({
+                success: false,
+                code: 'UPGRADE_REQUIRED',
+                message: 'An active subscription is required to run a manual audit sync.',
+                upgradeRequired: true
+            });
+            return;
         }
 
         // 2. Prevent overlapping syncs

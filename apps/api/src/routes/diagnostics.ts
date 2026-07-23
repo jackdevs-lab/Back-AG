@@ -118,22 +118,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             throw new AppError('Connection not found', 404);
         }
 
-        const creditsRemaining = await billingGuard.getCredits(connectionId);
-        const user = (req as any).user;
-
-        const subscriptionStatus = user?.subscriptionStatus ?? connection.subscriptionStatus;
-        const scanCredits = user?.scanCredits ?? creditsRemaining;
-
-        // Access Control Gating: Check if subscription is free/inactive or scan credits are exhausted
-        if (subscriptionStatus === 'FREE' || subscriptionStatus !== 'ACTIVE' || scanCredits <= 0) {
-            return res.status(403).json({
-                code: 'FEATURE_LOCKED',
-                message: scanCredits <= 0
-                    ? 'No scan credits remaining. Purchase a new package to continue.'
-                    : 'Access to detailed diagnostic findings requires an active subscription.'
-            });
-        }
-
+        // 1. Fetch the data FIRST
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
                 tenantId,
@@ -157,8 +142,8 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             });
         }
 
+        // 2. Prepare the summary/teaser metadata
         const metadata = (latestRun.metadata as any) || {};
-
         let criticalCount = metadata.criticalCount;
         let warningCount = metadata.warningCount;
         let infoCount = metadata.infoCount;
@@ -176,6 +161,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             ? (criticalCount + warningCount + infoCount)
             : 0;
 
+        // (Fallback logic if metadata is missing - keeping your original logic)
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
@@ -218,10 +204,19 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
 
         const scoreBreakdown = HealthScoreCalculator.calculate(latestRun.checks as any);
 
+        // 3. Determine access rights
+        const creditsRemaining = await billingGuard.getCredits(connectionId);
+        const user = (req as any).user;
+        const subscriptionStatus = user?.subscriptionStatus ?? connection.subscriptionStatus;
+        const scanCredits = user?.scanCredits ?? creditsRemaining;
+
+        const isLocked = subscriptionStatus === 'FREE' || subscriptionStatus !== 'ACTIVE' || scanCredits <= 0;
+
+        // 4. Return conditional payload based on lock status
         return res.json({
             success: true,
             data: {
-                locked: false,
+                locked: isLocked, // Tells frontend to show the paywall
                 id: latestRun.id,
                 runAt: latestRun.runAt,
                 healthScore: scoreBreakdown.score,
@@ -231,8 +226,9 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 issueCount,
                 totalEntities: totalEntities,
                 totalExposure: totalExposureStr,
-                checks: latestRun.checks,
-                issues: latestRun.issues.map(issue => ({
+                // ✅ SOFT GATE: Strip out checks and issues if locked
+                checks: isLocked ? [] : latestRun.checks,
+                issues: isLocked ? [] : latestRun.issues.map(issue => ({
                     id: issue.id,
                     ruleId: issue.ruleId,
                     ruleName: issue.ruleName,
@@ -247,7 +243,6 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         return next(error);
     }
 });
-
 router.get('/history/:connectionId', async (req: AuthRequest, res: Response, next) => {
     try {
         const { connectionId } = req.params;
