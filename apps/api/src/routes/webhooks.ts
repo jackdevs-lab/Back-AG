@@ -3,6 +3,7 @@ import { Router, Request, Response } from 'express';
 import { Webhook } from 'svix';
 import { prisma } from '@qb-health/financial-model';
 import crypto from 'crypto';
+import { Prisma } from '@qb-health/financial-model';
 
 const router: Router = Router();
 
@@ -135,6 +136,7 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
     const metadata = parseMetadata(data.metadata);
     const connectionId: string | undefined = metadata.connectionId;
     const realmId: string | undefined = metadata.realmId;
+    const tenantId: string | undefined = metadata.tenantId;
     const packageBought: string | undefined = metadata.packageBought;
 
     const paystackCustCode: string = data.customer?.customer_code || '';
@@ -152,8 +154,8 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
 
     if (connectionId) {
         existingConnection = await prisma.qbConnection.findUnique({ where: { id: connectionId } });
-    } else if (realmId) {
-        existingConnection = await prisma.qbConnection.findUnique({ where: { realmId } });
+    } else if (realmId && tenantId) {
+        existingConnection = await prisma.qbConnection.findUnique({ where: { tenantId_realmId: { tenantId, realmId } } });
     } else if (paystackCustCode) {
         existingConnection = await prisma.qbConnection.findFirst({ where: { paystackCustCode } });
     }
