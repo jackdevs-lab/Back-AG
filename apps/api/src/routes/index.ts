@@ -41,22 +41,35 @@ router.get('/qb/auth-url', (req: AuthRequest, res: Response) => {
     res.json({ success: true, authUrl });
 });
 
-router.post('/connections/quickbooks/callback', async (req: Request, res: Response, next) => {
+router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Response, next) => {
     try {
         const { code, realmId, state } = req.body;
         if (!code || !realmId || !state) throw new AppError('Invalid callback data', 400);
 
-        const tokenData = await oauthService.exchangeCodeForToken(code);
+        // 1. Decode state FIRST
         const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
-        const tenantId = stateData.tenantId;
+        const stateTenantId = stateData.tenantId;
 
-        // Safety check: Ensure tenant exists before saving connection
+        // 🔒 SECURITY CHECK: Ensure the state tenantId matches the authenticated user's tenantId
+        if (stateTenantId !== req.tenantId) {
+            logger.warn('OAuth Callback: Tenant ID mismatch between state and authenticated user', {
+                stateTenantId,
+                authTenantId: req.tenantId
+            });
+            throw new AppError('Invalid session state. Please try connecting again.', 403);
+        }
+
+        const tenantId = stateTenantId;
+
+        // 2. Exchange code for token
+        const tokenData = await oauthService.exchangeCodeForToken(code);
+
+        // 3. Safety check: Ensure tenant exists before saving connection
         let tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
         if (!tenant) {
             logger.info(`OAuth Callback: JIT provisioning fallback for tenant ${tenantId}...`);
             try {
-                // If it's an organization ID
                 if (tenantId.startsWith('org_')) {
                     const org = await clerkClient.organizations.getOrganization({ organizationId: tenantId });
                     tenant = await prisma.tenant.create({
@@ -89,7 +102,10 @@ router.post('/connections/quickbooks/callback', async (req: Request, res: Respon
             }
         }
 
+        // 4. Save connection (Now safely scoped)
         await oauthService.saveConnection(tenantId, realmId, tokenData);
+
+        // 5. Trigger initial sync
         await syncQueue.add('trigger-sync', { realmId, tenantId, type: 'initial' });
 
         res.json({
