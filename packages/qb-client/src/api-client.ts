@@ -107,7 +107,7 @@ export class QbApiClient {
     }
 }
 
-export async function createQbClient(realmId: string): Promise<QbApiClient> {
-    const token = await oauthService.refreshIfNeeded(realmId);
+export async function createQbClient(realmId: string, tenantId: string): Promise<QbApiClient> {
+    const token = await oauthService.refreshIfNeeded(realmId, tenantId);
     return new QbApiClient(realmId, token);
 }
