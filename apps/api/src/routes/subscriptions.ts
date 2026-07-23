@@ -3,7 +3,7 @@ import { body, query, validationResult } from 'express-validator';
 import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
 import { AuthRequest } from '../middleware/auth';
-import { paystackService } from '../services/paystack.service';
+import { paystackService } from './services/paystack.service';
 
 const router: Router = Router();
 

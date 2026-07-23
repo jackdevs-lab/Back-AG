@@ -5,7 +5,7 @@ import { HealthScoreCalculator } from '@qb-health/diagnostics';
 import { AppError } from '../middleware/error-handler';
 import { AuthRequest } from '../middleware/auth';
 import { sseEventEmitter } from '../queue';
-import { BillingGuardService } from '../services/billing-guard.service';
+import { BillingGuardService } from './services/billing-guard.service';
 
 const billingGuard = new BillingGuardService();
 const router: Router = Router();

@@ -87,7 +87,44 @@ router.get('/:id/status', async (req: AuthRequest, res: Response, next) => {
         next(error);
     }
 });
+// GET connection overview
+router.get('/:id/overview', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req;
 
+        const connection = await prisma.qbConnection.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                companyName: true,
+                realmId: true,
+                tenantId: true,
+                syncStatus: true,
+                subscriptionStatus: true,
+                lastSyncAt: true,
+                lastSyncMessage: true,
+                createdAt: true,
+                updatedAt: true,
+                isActive: true,
+                _count: {
+                    select: { issues: true }
+                }
+            }
+        });
+
+        if (!connection || connection.tenantId !== tenantId) {
+            throw new AppError('Connection not found', 404);
+        }
+
+        res.json({
+            success: true,
+            data: connection
+        });
+    } catch (error) {
+        next(error);
+    }
+});
 // DELETE connection
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
