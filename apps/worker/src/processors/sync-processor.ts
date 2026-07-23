@@ -32,6 +32,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
     if (!realmId || !tenantId) {
         throw new Error(`Sync job failed: realmId and tenantId are required. Got realmId: ${realmId}, tenantId: ${tenantId} for job ${job.id}`);
     }
+
     const jobLogger = logger.child({ jobId: job.id, realmId, type });
     jobLogger.info('Starting sync job');
 
@@ -68,34 +69,31 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     return { success: false, error: errorMsg };
                 }
 
-                // Check 2: Cooldown Active
-                const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
-                if (minutesSinceLastUpdate < 5) {
-                    const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
-                    jobLogger.warn(`Aborting job: ${errorMsg}`);
+                // Check 2: Cooldown Active (Skipped for initial syncs)
+                if (type !== 'initial') {
+                    const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
+                    if (minutesSinceLastUpdate < 5) {
+                        const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
+                        jobLogger.warn(`Aborting job: ${errorMsg}`);
 
-                    await prisma.qbConnection.update({
-                        where: {
-                            tenantId_realmId: {
-                                tenantId,
-                                realmId
-                            }
-                        },
-                        data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
-                    });
+                        await prisma.qbConnection.update({
+                            where: {
+                                tenantId_realmId: {
+                                    tenantId,
+                                    realmId
+                                }
+                            },
+                            data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
+                        });
 
-                    return { success: false, error: 'Cooldown active' };
+                        return { success: false, error: 'Cooldown active' };
+                    }
                 }
             }
         }
 
         const syncEngine = new SyncEngine(realmId as RealmId, tenantId);
-        let results;
-        if (type === 'initial' || type === 'manual') {
-            results = await syncEngine.runFullSync();
-        } else {
-            results = await syncEngine.runFullSync();
-        }
+        const results = await syncEngine.runFullSync();
 
         await job.updateProgress(80);
 
@@ -143,19 +141,10 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     successful: successfulSyncs.length
                 });
             }
-
-            // **** REMOVED THE LINE THAT SETS STATUS TO 'IDLE' HERE ****
-            // Clear any previous errors on success - NO LONGER DONE HERE
-            // await prisma.qbConnection.update({
-            //     where: { realmId },
-            //     data: { syncStatus: 'IDLE', lastSyncMessage: null }
-            // });
-
         } else {
             const errorMsg = 'Sync failed for all entities, skipping analysis';
             jobLogger.error(errorMsg);
 
-            // Persist full failure state
             await prisma.qbConnection.update({
                 where: {
                     tenantId_realmId: {
@@ -174,7 +163,6 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         const errorMsg = error instanceof Error ? error.message : 'Unknown sync error';
         jobLogger.error('Sync job failed', error as Error);
 
-        // Catch unexpected worker crashes and pipe them to the UI
         await prisma.qbConnection.update({
             where: {
                 tenantId_realmId: {
