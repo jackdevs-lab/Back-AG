@@ -21,17 +21,18 @@ export function chunk<T>(arr: T[], size: number): T[][] {
 
 export class SyncEngine {
     private realmId: RealmId;
+    private tenantId: string; // ✅ ADDED: Store tenantId
     private logger: any;
     private mapper: Mapper;
-    //private deltaSync: DeltaSync;
     private batchService: BatchUpsertService;
     private repo: BrandedRepository;
 
-    constructor(realmId: RealmId) {
+    // ✅ UPDATED: Accept tenantId in constructor
+    constructor(realmId: RealmId, tenantId: string) {
         this.realmId = realmId;
-        this.logger = createLogger({ realmId });
+        this.tenantId = tenantId;
+        this.logger = createLogger({ realmId, tenantId }); // ✅ Added tenantId to logger context
         this.mapper = new Mapper();
-        //this.deltaSync = new DeltaSync(realmId);
         this.batchService = new BatchUpsertService();
         this.repo = new PrismaBrandedRepository(prisma);
     }
@@ -39,11 +40,13 @@ export class SyncEngine {
     async runFullSync(): Promise<SyncResult[]> {
         const startTime = Date.now();
 
-        this.logger.info('Starting full sync', { realmId: this.realmId });
-        await this.repo.updateQbConnectionStatus(this.realmId, 'SYNCING' as BrandedSyncStatus);
+        this.logger.info('Starting full sync', { realmId: this.realmId, tenantId: this.tenantId });
+
+        // ✅ FIXED: Pass tenantId as the FIRST argument
+        await this.repo.updateQbConnectionStatus(this.tenantId, this.realmId, 'SYNCING' as BrandedSyncStatus);
 
         try {
-            const qbClient = await createQbClient(this.realmId);
+            const qbClient = await createQbClient(this.realmId, this.tenantId); // ⚠️ See note below about this
 
             const baseEntities: Array<{ type: SupportedEntityType; sync: () => Promise<SyncResult> }> = [
                 { type: 'Account', sync: () => this.syncAccounts(qbClient) },
@@ -69,10 +72,8 @@ export class SyncEngine {
                 try {
                     const result = await entity.sync();
                     allResults.push(result);
-                    this.logger.debug(`Completed sync for base entity: ${entity.type}`, { realmId: this.realmId });
                 } catch (error) {
                     this.logger.error(`Failed to sync base ${entity.type}`, error as Error, { entityType: entity.type, realmId: this.realmId });
-                    // Explicitly typed as SyncResult to prevent string widening
                     const errorResult: SyncResult = {
                         realmId: this.realmId,
                         entityType: entity.type,
@@ -91,7 +92,6 @@ export class SyncEngine {
                     return await entity.sync();
                 } catch (error) {
                     this.logger.error(`Failed to sync transactional ${entity.type}`, error as Error, { entityType: entity.type, realmId: this.realmId });
-                    // Explicitly typed as SyncResult to prevent string widening
                     const errorResult: SyncResult = {
                         realmId: this.realmId,
                         entityType: entity.type,
@@ -107,11 +107,7 @@ export class SyncEngine {
             const transactionalResults = await Promise.all(txPromises);
             allResults.push(...transactionalResults);
 
-            // -------------------------------------------------------------
-            // UPSERT-THEN-SWEEP: Atomic Deletion Phase
-            // -------------------------------------------------------------
             this.logger.info('Executing Reconciliation Sweep...', { realmId: this.realmId });
-
             const sweepOperations: any[] = [];
 
             for (const res of allResults) {
@@ -151,10 +147,12 @@ export class SyncEngine {
                 this.logger.info('Reconciliation Sweep completed successfully.', { realmId: this.realmId, sweptModels: sweepOperations.length });
             }
 
-            await this.repo.updateQbConnectionStatus(this.realmId, 'IDLE' as BrandedSyncStatus, new Date());
+            // ✅ FIXED: Pass tenantId as the FIRST argument
+            await this.repo.updateQbConnectionStatus(this.tenantId, this.realmId, 'IDLE' as BrandedSyncStatus, new Date());
 
             this.logger.info('Full sync completed', {
                 realmId: this.realmId,
+                tenantId: this.tenantId,
                 durationMs: Date.now() - startTime,
                 entitiesProcessed: allResults.length
             });
@@ -162,8 +160,10 @@ export class SyncEngine {
             return allResults.map(({ syncedIds, ...rest }) => rest);
 
         } catch (error) {
-            this.logger.error('Full sync failed during execution phase', error as Error, { realmId: this.realmId });
-            await this.repo.updateQbConnectionStatus(this.realmId, 'ERROR' as BrandedSyncStatus, new Date());
+            this.logger.error('Full sync failed during execution phase', error as Error, { realmId: this.realmId, tenantId: this.tenantId });
+
+            // ✅ FIXED: Pass tenantId as the FIRST argument
+            await this.repo.updateQbConnectionStatus(this.tenantId, this.realmId, 'ERROR' as BrandedSyncStatus, new Date());
             throw error;
         }
     }
