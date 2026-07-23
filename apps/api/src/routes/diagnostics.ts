@@ -10,6 +10,101 @@ import { BillingGuardService } from '../services/billing-guard.service';
 const billingGuard = new BillingGuardService();
 const router: Router = Router();
 
+// ✅ UNGATED TEASER OVERVIEW ENDPOINT
+router.get('/overview/:connectionId', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { connectionId } = req.params;
+        const { tenantId } = req;
+
+        const connection = await prisma.qbConnection.findUnique({
+            where: { id: connectionId }
+        });
+
+        if (!connection || connection.tenantId !== tenantId) {
+            throw new AppError('Connection not found', 404);
+        }
+
+        const latestRun = await prisma.diagnosticRun.findFirst({
+            where: {
+                tenantId,
+                connectionId
+            },
+            orderBy: { runAt: 'desc' }
+        });
+
+        if (!latestRun) {
+            return res.json({
+                success: true,
+                data: null,
+                message: 'No diagnostic runs found'
+            });
+        }
+
+        const metadata = (latestRun.metadata as any) || {};
+
+        let criticalCount = metadata.criticalCount;
+        let warningCount = metadata.warningCount;
+        let infoCount = metadata.infoCount;
+        let totalEntities = metadata.entitiesAffected;
+        let totalExposureStr = metadata.totalExposure;
+
+        const isMetadataComplete =
+            criticalCount !== undefined &&
+            warningCount !== undefined &&
+            infoCount !== undefined &&
+            totalEntities !== undefined &&
+            totalExposureStr !== undefined;
+
+        if (!isMetadataComplete) {
+            const allIssuesSummary = await prisma.issue.findMany({
+                where: { runId: latestRun.id },
+                select: { ruleId: true, severity: true, entities: true, message: true }
+            });
+
+            criticalCount = allIssuesSummary.filter(i => i.severity === 'CRITICAL').length;
+            warningCount = allIssuesSummary.filter(i => i.severity === 'WARNING').length;
+            infoCount = allIssuesSummary.filter(i => i.severity === 'INFO').length;
+            totalEntities = allIssuesSummary.reduce((sum, i) => sum + ((i.entities as any[])?.length ?? 0), 0);
+
+            const uniqueRuleMessages = Array.from(
+                new Map(allIssuesSummary.map(issue => [issue.ruleId, issue.message])).values()
+            );
+
+            const totalExposureValue = uniqueRuleMessages.reduce((sum, message) => {
+                const match = message.match(/(?:total exposure of|exposure:)\s*\$?([\d,.]+(?:\.\d{2})?)/i);
+                if (match) {
+                    return sum + parseFloat(match[1].replace(/,/g, ''));
+                }
+                return sum;
+            }, 0);
+
+            totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        const totalIssues = (criticalCount || 0) + (warningCount || 0) + (infoCount || 0);
+
+        // Returns ONLY aggregate metrics — no granular record-level details or issues array
+        return res.json({
+            success: true,
+            data: {
+                runId: latestRun.id,
+                runAt: latestRun.runAt,
+                healthScore: latestRun.healthScore,
+                totalIssues,
+                breakdown: {
+                    criticalCount: criticalCount || 0,
+                    warningCount: warningCount || 0,
+                    infoCount: infoCount || 0,
+                },
+                totalEntitiesAffected: totalEntities || 0,
+                totalExposure: totalExposureStr || '$0.00'
+            }
+        });
+    } catch (error) {
+        return next(error);
+    }
+});
+
 router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next) => {
     try {
         const { connectionId } = req.params;
@@ -24,6 +119,20 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         }
 
         const creditsRemaining = await billingGuard.getCredits(connectionId);
+        const user = (req as any).user;
+
+        const subscriptionStatus = user?.subscriptionStatus ?? connection.subscriptionStatus;
+        const scanCredits = user?.scanCredits ?? creditsRemaining;
+
+        // Access Control Gating: Check if subscription is free/inactive or scan credits are exhausted
+        if (subscriptionStatus === 'FREE' || subscriptionStatus !== 'ACTIVE' || scanCredits <= 0) {
+            return res.status(403).json({
+                code: 'FEATURE_LOCKED',
+                message: scanCredits <= 0
+                    ? 'No scan credits remaining. Purchase a new package to continue.'
+                    : 'Access to detailed diagnostic findings requires an active subscription.'
+            });
+        }
 
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
@@ -105,28 +214,6 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     }
                 }
             }).catch(err => console.error('Failed to self-heal diagnostic run metadata:', err));
-        }
-
-        if (connection.subscriptionStatus !== 'ACTIVE' || creditsRemaining <= 0) {
-            return res.json({
-                success: true,
-                data: {
-                    locked: true,
-                    runId: latestRun.id,
-                    runAt: latestRun.runAt,
-                    meta: {
-                        healthScore: null,
-                        criticalCount,
-                        warningCount,
-                        infoCount,
-                        entitiesAffected: totalEntities,
-                        totalExposure: totalExposureStr,
-                    },
-                    message: creditsRemaining <= 0
-                        ? "No scan credits remaining. Purchase a new package to continue."
-                        : `Audit complete: ${criticalCount + warningCount} issues found with a total exposure of ${totalExposureStr}. Subscribe to unlock full diagnostics.`
-                }
-            });
         }
 
         const scoreBreakdown = HealthScoreCalculator.calculate(latestRun.checks as any);
