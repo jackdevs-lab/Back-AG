@@ -88,9 +88,10 @@ export class OAuthService {
 
         try {
             await prisma.qbConnection.upsert({
-                where: { realmId },
+                where: {
+                    tenantId_realmId: { tenantId, realmId }
+                },
                 update: {
-                    tenantId,
                     accessToken: encryptedAccessToken,
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
@@ -120,9 +121,14 @@ export class OAuthService {
         logger.info('QuickBooks connection saved', { tenantId, realmId });
     }
 
-    async getConnection(realmId: string) {
+    async getConnection(realmId: string, tenantId: string) {
         const connection = await prisma.qbConnection.findUnique({
-            where: { realmId }
+            where: {
+                tenantId_realmId: {
+                    tenantId: tenantId,
+                    realmId: realmId
+                }
+            }
         });
 
         if (!connection) {
@@ -136,8 +142,8 @@ export class OAuthService {
         };
     }
 
-    async refreshIfNeeded(realmId: string): Promise<string> {
-        const connection = await this.getConnection(realmId);
+    async refreshIfNeeded(realmId: string, tenantId: string): Promise<string> {
+        const connection = await this.getConnection(realmId, tenantId);
         const now = new Date();
         const expiry = new Date(connection.tokenExpiry);
         const threshold = new Date(now.getTime() + 5 * 60 * 1000);
