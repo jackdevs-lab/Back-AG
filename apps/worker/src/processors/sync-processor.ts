@@ -29,8 +29,8 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         }
     }
 
-    if (!realmId) {
-        throw new Error(`Sync job failed: realmId is missing and could not be resolved from connectionId for job ${job.id}`);
+    if (!realmId || !tenantId) {
+        throw new Error(`Sync job failed: realmId and tenantId are required. Got realmId: ${realmId}, tenantId: ${tenantId} for job ${job.id}`);
     }
     const jobLogger = logger.child({ jobId: job.id, realmId, type });
     jobLogger.info('Starting sync job');
@@ -40,7 +40,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         if (type === 'initial' || type === 'manual') {
             const connection = await prisma.qbConnection.findUnique({
-                where: { realmId },
+                where: {
+                    tenantId_realmId: {
+                        tenantId,
+                        realmId
+                    }
+                },
                 select: { updatedAt: true, syncStatus: true }
             });
 
@@ -51,7 +56,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     jobLogger.warn(`Aborting job: ${errorMsg}`);
 
                     await prisma.qbConnection.update({
-                        where: { realmId },
+                        where: {
+                            tenantId_realmId: {
+                                tenantId,
+                                realmId
+                            }
+                        },
                         data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
                     });
 
@@ -65,7 +75,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     jobLogger.warn(`Aborting job: ${errorMsg}`);
 
                     await prisma.qbConnection.update({
-                        where: { realmId },
+                        where: {
+                            tenantId_realmId: {
+                                tenantId,
+                                realmId
+                            }
+                        },
                         data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
                     });
 
@@ -74,8 +89,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
             }
         }
 
-        const syncEngine = new SyncEngine(realmId as RealmId);
-
+        const syncEngine = new SyncEngine(realmId as RealmId, tenantId);
         let results;
         if (type === 'initial' || type === 'manual') {
             results = await syncEngine.runFullSync();
@@ -104,7 +118,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         if (successfulSyncs.length > 0) {
             const connection = await prisma.qbConnection.findUnique({
-                where: { realmId },
+                where: {
+                    tenantId_realmId: {
+                        tenantId,
+                        realmId
+                    }
+                },
                 select: { id: true }
             });
 
@@ -138,7 +157,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
             // Persist full failure state
             await prisma.qbConnection.update({
-                where: { realmId },
+                where: {
+                    tenantId_realmId: {
+                        tenantId,
+                        realmId
+                    }
+                },
                 data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
             });
         }
@@ -152,7 +176,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         // Catch unexpected worker crashes and pipe them to the UI
         await prisma.qbConnection.update({
-            where: { realmId },
+            where: {
+                tenantId_realmId: {
+                    tenantId,
+                    realmId
+                }
+            },
             data: {
                 syncStatus: 'ERROR',
                 lastSyncMessage: errorMsg
