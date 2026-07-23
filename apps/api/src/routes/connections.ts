@@ -1,4 +1,3 @@
-// apps/api/src/routes/connections.ts
 import { Router, Response } from 'express';
 import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
@@ -7,6 +6,7 @@ import { syncQueue } from '../queue';
 
 const router: Router = Router();
 
+// GET all connections for the current tenant
 router.get('/', async (req: AuthRequest, res: Response, next) => {
     try {
         const { tenantId } = req;
@@ -36,6 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     }
 });
 
+// GET single connection by ID
 router.get('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -63,13 +64,31 @@ router.get('/:id', async (req: AuthRequest, res: Response, next) => {
         next(error);
     }
 });
-router.get('/:id/status', async (req: AuthRequest, res: Response) => {
-    const status = await prisma.qbConnection.findUnique({
-        where: { id: req.params.id },
-        select: { syncStatus: true, lastSyncMessage: true }
-    });
-    res.json(status);
+
+// ✅ FIXED: GET connection status with tenant validation
+router.get('/:id/status', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req;
+
+        const status = await prisma.qbConnection.findUnique({
+            where: { id },
+            select: { syncStatus: true, lastSyncMessage: true, tenantId: true }
+        });
+
+        if (!status || status.tenantId !== tenantId) {
+            throw new AppError('Connection not found', 404);
+        }
+
+        // Remove tenantId from response to keep payload clean
+        const { tenantId: _, ...cleanStatus } = status;
+        res.json(cleanStatus);
+    } catch (error) {
+        next(error);
+    }
 });
+
+// DELETE connection
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -96,6 +115,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     }
 });
 
+// PATCH connection
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -129,6 +149,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     }
 });
 
+// ✅ FIXED: POST sync trigger (Cooldown removed, relies only on SYNCING status)
 router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -142,28 +163,23 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // ✅ FIX 1: Validate subscription status before allowing a sync trigger
+        // 1. Validate subscription status
         if (connection.subscriptionStatus !== 'ACTIVE') {
             throw new AppError('An active subscription is required to run an audit sync.', 403);
         }
 
+        // 2. Prevent overlapping syncs (Replaces the 5-min cooldown)
         if (connection.syncStatus === 'SYNCING') {
             throw new AppError('A sync is already in progress for this company.', 409);
         }
 
-        const COOLDOWN_MINUTES = 5;
-        const msSinceLastUpdate = Date.now() - connection.updatedAt.getTime();
-        const minutesSinceLastUpdate = msSinceLastUpdate / 60000;
+        // 3. Optimistically update status so UI reflects it immediately
+        await prisma.qbConnection.update({
+            where: { id },
+            data: { syncStatus: 'SYNCING', lastSyncMessage: null }
+        });
 
-        if (minutesSinceLastUpdate < COOLDOWN_MINUTES) {
-            res.status(429).json({
-                success: false,
-                message: 'Server is cooling down. Please wait 5 more minute(s) before syncing again.',
-                cooldownActive: true
-            });
-            return;
-        }
-
+        // 4. Queue the sync job
         const job = await syncQueue.add('trigger-sync', {
             realmId: connection.realmId,
             tenantId,
