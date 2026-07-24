@@ -104,7 +104,6 @@ router.get('/overview/:connectionId', async (req: AuthRequest, res: Response, ne
         return next(error);
     }
 });
-
 router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next) => {
     try {
         const { connectionId } = req.params;
@@ -161,7 +160,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             ? (criticalCount + warningCount + infoCount)
             : 0;
 
-        // (Fallback logic if metadata is missing - keeping your original logic)
+        // Fallback logic if metadata is incomplete
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
@@ -216,17 +215,37 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         return res.json({
             success: true,
             data: {
-                locked: isLocked, // Tells frontend to show the paywall
+                locked: isLocked,
                 id: latestRun.id,
-                runAt: latestRun.runAt,
+                runId: latestRun.id,
+                runAt: latestRun.runAt ? new Date(latestRun.runAt).toISOString() : new Date().toISOString(),
+                lastRunAt: latestRun.runAt ? new Date(latestRun.runAt).toISOString() : new Date().toISOString(),
+
                 healthScore: scoreBreakdown.score,
                 scoreLabel: scoreBreakdown.grade,
                 scoreColor: scoreBreakdown.color,
                 scoreBreakdown,
+
+                criticalCount: criticalCount || 0,
+                warningCount: warningCount || 0,
+                infoCount: infoCount || 0,
+
                 issueCount,
-                totalEntities: totalEntities,
+                totalIssues: issueCount,
+                totalEntities: totalEntities || 0,
+                affectedEntitiesCount: totalEntities || 0,
                 totalExposure: totalExposureStr,
-                // ✅ SOFT GATE: Strip out checks and issues if locked
+
+                summary: {
+                    totalIssues: issueCount,
+                    criticalCount: criticalCount || 0,
+                    warningCount: warningCount || 0,
+                    infoCount: infoCount || 0,
+                    affectedEntitiesCount: totalEntities || 0,
+                    totalEntities: totalEntities || 0,
+                    totalExposure: totalExposureStr
+                },
+
                 checks: isLocked ? [] : latestRun.checks,
                 issues: isLocked ? [] : latestRun.issues.map(issue => ({
                     id: issue.id,
@@ -234,7 +253,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     ruleName: issue.ruleName,
                     severity: issue.severity,
                     message: issue.message,
-                    entityCount: (issue.entities as any[]).length,
+                    entityCount: Array.isArray(issue.entities) ? issue.entities.length : 0,
                     isResolved: issue.isResolved
                 }))
             }
