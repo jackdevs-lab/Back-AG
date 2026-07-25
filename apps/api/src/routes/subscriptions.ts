@@ -82,7 +82,7 @@ router.get(
             }
 
             const connectionId = req.query.connectionId as string;
-            const planCode = (req.query.planCode as string) || 'PLN_DEFAULT';
+            const planCode = (req.query.planCode as string) || 'PLN_44437ae17tzxlk5';
 
             const connection = await prisma.qbConnection.findUnique({
                 where: { id: connectionId }
