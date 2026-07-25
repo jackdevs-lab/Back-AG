@@ -39,8 +39,6 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
                             paystackSubscriptionCode: data.subscription_code,
                             paystackPlanCode: data.plan?.plan_code,
                             currentPeriodEnd: data.next_payment_date ? new Date(data.next_payment_date) : null,
-                            // Adding scan allowance as standard behavior for active subs
-                            scanCredits: 10
                         }
                     });
                 }
@@ -53,7 +51,7 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
                     await prisma.qbConnection.updateMany({
                         where: { paystackSubscriptionCode: subscriptionCode },
                         data: {
-                            subscriptionStatus: 'CANCELED'
+                            subscriptionStatus: 'INACTIVE' // Or 'INACTIVE' depending on your enum mapping
                         }
                     });
                 }

@@ -62,7 +62,6 @@ model QbConnection {
   updatedAt                DateTime           @updatedAt
   timezone                 String             @default("UTC")
   diagnostics              DiagnosticRun[]
-  scanCredits              Int                @default(10)
   lastTransactionRef       String?
   issues                   Issue[]
   tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -22,6 +22,7 @@ export class PaystackService {
 
     async initializeTransaction(
         email: string,
+        amount: number,
         connectionId: string,
         realmId: string,
         clerkUserId: string,
@@ -48,6 +49,7 @@ export class PaystackService {
                 },
                 body: JSON.stringify({
                     email,
+                    amount: Math.round(amount * 100),
                     plan: planCode,
                     metadata: {
                         connectionId,
@@ -88,7 +90,7 @@ export class PaystackService {
                 paystackPlanCode: planCode,
                 billingCycle: 'monthly',
                 currentPeriodEnd: currentPeriodEnd,
-                scanCredits: { increment: 10 }
+                // scanCredits: { increment: 10 } // <-- REMOVED
             }
         });
 

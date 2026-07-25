@@ -37,9 +37,12 @@ router.post(
             if (!email) {
                 throw new AppError('Tenant email not found', 400);
             }
+            let planPrice = 0;
+            if (planCode === 'PLN_DEFAULT') planPrice = 5000;
 
             const checkoutData = await paystackService.initializeTransaction(
                 email,
+                planPrice,
                 connection.id,
                 connection.realmId,
                 userId || tenantId!,
