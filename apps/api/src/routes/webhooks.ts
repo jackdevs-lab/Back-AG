@@ -7,10 +7,8 @@ import { Prisma } from '@qb-health/financial-model';
 
 const router: Router = Router();
 
-
 router.post('/clerk', async (req: Request, res: Response) => {
     const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
-
     if (!WEBHOOK_SECRET) {
         console.error('CLERK_WEBHOOK_SECRET is not defined');
         return res.status(500).json({ success: false, message: 'Server configuration error' });
@@ -18,7 +16,6 @@ router.post('/clerk', async (req: Request, res: Response) => {
 
     const headers = req.headers;
     const payload = JSON.stringify(req.body);
-
     const svix_id = headers["svix-id"] as string;
     const svix_timestamp = headers["svix-timestamp"] as string;
     const svix_signature = headers["svix-signature"] as string;
@@ -29,7 +26,6 @@ router.post('/clerk', async (req: Request, res: Response) => {
 
     const wh = new Webhook(WEBHOOK_SECRET);
     let evt: any;
-
     try {
         evt = wh.verify(payload, {
             "svix-id": svix_id,
@@ -54,6 +50,7 @@ router.post('/clerk', async (req: Request, res: Response) => {
                 update: { email, name },
                 create: { id, email, name }
             });
+
             console.log(`Synced Tenant for User: ${id}`);
         }
 
@@ -69,6 +66,7 @@ router.post('/clerk', async (req: Request, res: Response) => {
                     email: `org_${id}@clerk.system`
                 }
             });
+
             console.log(`Synced Tenant for Organization: ${id}`);
         }
 
@@ -79,11 +77,9 @@ router.post('/clerk', async (req: Request, res: Response) => {
     }
 });
 
-
 // Add ": Promise<any>" to the function signature
 router.post('/paystack', async (req: Request, res: Response): Promise<any> => {
-    const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
-
+    const secret = process.env.PAYSTACK_TEST_SECRET_KEY; // Consider using LIVE key for production webhook URL
     if (!secret) {
         console.error('PAYSTACK_TEST_SECRET_KEY is not defined');
         return res.status(200).json({ success: false, message: 'Server configuration error' });
@@ -112,11 +108,14 @@ router.post('/paystack', async (req: Request, res: Response): Promise<any> => {
         } else if (eventType === 'subscription.update') {
             await handleSubscriptionUpdate(event.data);
         }
+        // Handle other relevant Paystack events like subscription.disable, invoice.payment_failed etc. if needed
+        else if (eventType === 'subscription.disable') { // Explicitly handle disable event
+            await handleSubscriptionDisable(event.data);
+        }
     } catch (err) {
         console.error(`Paystack webhook: DB update failed for event ${eventType}:`, err);
     }
 });
-
 
 function parseMetadata(rawMetadata: any) {
     if (!rawMetadata) return {};
@@ -131,34 +130,22 @@ function parseMetadata(rawMetadata: any) {
     return rawMetadata;
 }
 
-
 async function handleSubscriptionActivation(data: any, eventType: string): Promise<void> {
     const metadata = parseMetadata(data.metadata);
     const connectionId: string | undefined = metadata.connectionId;
-    const realmId: string | undefined = metadata.realmId;
-    const tenantId: string | undefined = metadata.tenantId;
-    const packageBought: string | undefined = metadata.packageBought;
 
+    const packageBought: string | undefined = metadata.packageBought; // Potentially unused now
     const paystackCustCode: string = data.customer?.customer_code || '';
     const paystackPlanCode: string = data.plan?.plan_code || '';
     const transactionRef: string = data.reference || '';
 
-    let creditsToAdd = 0;
-    if (packageBought === '10_scans') {
-        creditsToAdd = 10;
-    } else if (!packageBought && eventType === 'charge.success') {
-        creditsToAdd = 10;
-    }
+
 
     let existingConnection = null;
-
     if (connectionId) {
         existingConnection = await prisma.qbConnection.findUnique({ where: { id: connectionId } });
-    } else if (realmId && tenantId) {
-        existingConnection = await prisma.qbConnection.findUnique({ where: { tenantId_realmId: { tenantId, realmId } } });
-    } else if (paystackCustCode) {
-        existingConnection = await prisma.qbConnection.findFirst({ where: { paystackCustCode } });
     }
+
 
     if (!existingConnection) {
         console.error(`Paystack webhook: QbConnection not found. connectionId: ${connectionId}, paystackCustCode: ${paystackCustCode}`);
@@ -166,45 +153,50 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
     }
 
     if (transactionRef && existingConnection.lastTransactionRef === transactionRef) {
-        console.log(`Paystack webhook: Transaction ${transactionRef} already processed — skipping to prevent double credits.`);
+        console.log(`Paystack webhook: Transaction ${transactionRef} already processed for connectionId: ${existingConnection.id} — skipping.`);
         return;
     }
 
     const updateData: any = {
-        subscriptionStatus: 'ACTIVE',
+        subscriptionStatus: 'ACTIVE', // Set to ACTIVE upon successful charge or subscription creation
         paystackCustCode: paystackCustCode || undefined,
         paystackPlanCode: paystackPlanCode || undefined,
         lastTransactionRef: transactionRef
+
     };
 
-    if (creditsToAdd > 0) {
-        updateData.scanCredits = { increment: creditsToAdd };
+    if (data.next_payment_date) {
+        updateData.currentPeriodEnd = new Date(data.next_payment_date);
     }
+
 
     await prisma.qbConnection.update({
         where: { id: existingConnection.id },
         data: updateData
     });
 
-    console.log(`Paystack webhook: Added ${creditsToAdd} credits for connectionId: ${existingConnection.id} via ${eventType}`);
+    console.log(`Paystack webhook: Activated subscription (status=ACTIVE) for connectionId: ${existingConnection.id} via ${eventType}`);
 }
 
 
 async function handleSubscriptionUpdate(data: any): Promise<void> {
     const metadata = parseMetadata(data.metadata);
-    const paystackStatus: string = data.status;
-    const paystackCustCode: string = data.customer?.customer_code || '';
+    const paystackStatus: string = data.status; // 'active', 'cancelled', 'suspended', 'past_due'
+    const paystackCustCode: string = data.customer?.customer_code || ''; // Fallback identifier
+    const paystackSubscriptionCode: string = data.subscription_code; // Another potential identifier
 
     let existingConnection = null;
-
     if (metadata.connectionId) {
         existingConnection = await prisma.qbConnection.findUnique({ where: { id: metadata.connectionId } });
-    } else if (paystackCustCode) {
+    }
+    else if (paystackCustCode) {
         existingConnection = await prisma.qbConnection.findFirst({ where: { paystackCustCode } });
+    } else if (paystackSubscriptionCode) {
+        existingConnection = await prisma.qbConnection.findFirst({ where: { paystackSubscriptionCode } });
     }
 
     if (!existingConnection) {
-        console.warn(`Paystack webhook: subscription.update failed. Could not find connection via metadata or customer code: ${paystackCustCode}`);
+        console.warn(`Paystack webhook: subscription.update failed. Could not find connection via metadata (${metadata.connectionId}), customer code (${paystackCustCode}), or subscription code (${paystackSubscriptionCode})`);
         return;
     }
 
@@ -212,9 +204,9 @@ async function handleSubscriptionUpdate(data: any): Promise<void> {
     if (paystackStatus === 'active') {
         subscriptionStatus = 'ACTIVE';
     } else if (paystackStatus === 'past_due') {
-        subscriptionStatus = 'PAST_DUE';
-    } else {
-        subscriptionStatus = 'INACTIVE';
+        subscriptionStatus = 'PAST_DUE'; // Or another specific status if needed
+    } else { // Covers 'cancelled', 'suspended', 'failed', etc.
+        subscriptionStatus = 'INACTIVE'; // Generic inactive state for non-active/cancelled states
     }
 
     await prisma.qbConnection.update({
@@ -222,7 +214,37 @@ async function handleSubscriptionUpdate(data: any): Promise<void> {
         data: { subscriptionStatus }
     });
 
-    console.log(`Paystack webhook: subscription.update → ${subscriptionStatus} for connectionId: ${existingConnection.id}`);
+    console.log(`Paystack webhook: Updated subscription status to '${subscriptionStatus}' for connectionId: ${existingConnection.id} via subscription.update`);
 }
+
+async function handleSubscriptionDisable(data: any): Promise<void> {
+    const metadata = parseMetadata(data.metadata);
+    const paystackSubscriptionCode: string = data.subscription_code;
+    const paystackCustCode: string = data.customer?.customer_code || '';
+
+    let existingConnection = null;
+    if (metadata.connectionId) {
+        existingConnection = await prisma.qbConnection.findUnique({ where: { id: metadata.connectionId } });
+    }
+    else if (paystackSubscriptionCode) {
+        existingConnection = await prisma.qbConnection.findFirst({ where: { paystackSubscriptionCode } });
+    } else if (paystackCustCode) {
+        existingConnection = await prisma.qbConnection.findFirst({ where: { paystackCustCode } });
+    }
+
+    if (!existingConnection) {
+        console.warn(`Paystack webhook: subscription.disable failed. Could not find connection via metadata (${metadata.connectionId}), subscription code (${paystackSubscriptionCode}), or customer code (${paystackCustCode})`);
+        return;
+    }
+
+    // Explicitly set status to INACTIVE upon disable event
+    await prisma.qbConnection.update({
+        where: { id: existingConnection.id },
+        data: { subscriptionStatus: 'INACTIVE' }
+    });
+
+    console.log(`Paystack webhook: Disabled subscription (status=INACTIVE) for connectionId: ${existingConnection.id} via subscription.disable`);
+}
+
 
 export default router;
