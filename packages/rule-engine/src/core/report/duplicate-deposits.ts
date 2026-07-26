@@ -16,7 +16,7 @@ export async function formatReport(
         id: f.metadata.clusterIds.join(','),
         label: `Duplicate Group — $${f.amount.toFixed(2)} on ${f.date.toISOString().split('T')[0]}`,
         details: `Found ${f.entities.length} deposits with identical date, amount, and account. IDs: ${f.metadata.clusterIds.join(', ')}.`,
-        deepLink: f.metadata.clusterIds.map((id: string) => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${id}`)
+        deepLink: f.metadata.clusterIds.map((id: string) => `https://qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${id}`)
     }));
 
     const blindSpotWarning = normErrors && normErrors.length > 0

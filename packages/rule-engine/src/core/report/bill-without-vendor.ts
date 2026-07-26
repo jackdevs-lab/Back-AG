@@ -18,7 +18,7 @@ export function formatReport(
             id: f.id,
             label: `${f.label} - ${new Intl.NumberFormat('en-US', { style: 'currency', currency: f.currency }).format(f.amount)}`,
             details: `Bill dated ${f.date.toISOString().split('T')[0]} lacks a vendor assignment. Fingerprint: ${f.fingerprint.substring(0, 8)}`,
-            deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.id}`
+            deepLink: `https://qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.id}`
         })),
         recommendation: 'Every bill must be assigned to a vendor for accurate AP aging and tax reporting. Review high-exposure items immediately to resolve unassigned liabilities.'
     });

@@ -37,7 +37,7 @@ export class HighJournalEntryUsageRule implements IRule {
                 id: 'je-ratio',
                 label: `Journal Entry Ratio: ${(jeRatio * 100).toFixed(1)}%`,
                 details: `Found ${jeCount} Journal Entries vs. ${standardCount} standard transactions. The ratio of ${(jeRatio * 100).toFixed(1)}% exceeds the recommended ${(JE_RATIO_THRESHOLD * 100).toFixed(0)}% threshold.`,
-                deepLink: `https://sandbox.qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
+                deepLink: `https://qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
             }],
             recommendation: 'Excessive use of Journal Entries bypasses QuickBooks\' built-in workflows for Accounts Receivable and Payable, making reports unreliable. Replace manual journal entries with proper Invoices, Bills, Payments, and Expenses where possible.'
         });

@@ -9,14 +9,14 @@ export function formatReport(
         id: c.id,
         label: c.label,
         details: `Unapplied balance: ${formatCurrency(c.amount, c.currency)} — Dated ${new Date(c.date).toISOString().split('T')[0]}`,
-        deepLink: `https://sandbox.qbo.intuit.com/app/vendorcredit?realmId=${realmId}&txnId=${c.id}`
+        deepLink: `https://qbo.intuit.com/app/vendorcredit?realmId=${realmId}&txnId=${c.id}`
     }));
 
     const integrityItems: ReportItem[] = unscannable.map((u: any) => ({
         id: u.qbId || 'unknown',
         label: `[DATA_INTEGRITY] Vendor Credit ${u.qbId || 'unknown'}`,
         details: `Incomplete Credit Data: This credit was skipped because of data validation errors. Details: ${u.error}`,
-        deepLink: `https://sandbox.qbo.intuit.com/app/expenses?realmId=${realmId}`
+        deepLink: `https://qbo.intuit.com/app/expenses?realmId=${realmId}`
     }));
 
     return formatStandardReport({

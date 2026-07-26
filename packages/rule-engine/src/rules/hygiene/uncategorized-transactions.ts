@@ -92,7 +92,7 @@ export class UncategorizedTransactionsRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.txnType} ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `${f.metadata.txnType} on ${f.date.toISOString().split('T')[0]} is posted to an uncategorized account ("Ask My Accountant" or similar).`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
+                    deepLink: `https://qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
                 }));
                 return formatStandardReport({
                     title: 'Uncategorized Transactions',

@@ -81,7 +81,7 @@ export class DepositSumMismatchRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Deposit ${f.metadata.qbId} � Total: $${f.metadata.total.toFixed(2)}, Lines: $${f.metadata.lineSum.toFixed(2)}`,
                     details: `Deposit total ($${f.metadata.total.toFixed(2)}) does not match sum of lines ($${f.metadata.lineSum.toFixed(2)}). Variance: $${f.metadata.variance.toFixed(2)}.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Deposit Line Sum Mismatches',
