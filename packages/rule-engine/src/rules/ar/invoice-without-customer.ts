@@ -88,7 +88,7 @@ export class InvoiceWithoutCustomerRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Invoice ${f.metadata.qbId}`,
                     details: `Invoice for $${f.amount.toFixed(2)} on ${f.date.toISOString().split('T')[0]} has no customer assigned.`,
-                    deepLink: `https://qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
 
                 const reportString = formatStandardReport({

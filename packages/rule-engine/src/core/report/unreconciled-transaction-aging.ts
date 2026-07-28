@@ -14,7 +14,7 @@ const QBO_BANKING_ROUTE_MAP: Record<string, string> = {
 export function formatReport(reportData: any, ctx: RuleContext, normErrors: any[]): string {
     const isSandbox = ctx.realmId ? ctx.realmId.startsWith('1935') : false;
     const qboBaseUrl = isSandbox
-        ? 'https://qbo.intuit.com'
+        ? 'https://sandbox.qbo.intuit.com'
         : 'https://app.qbo.intuit.com';
 
     const displayItems: ReportItem[] = reportData.findingsForDisplay.map((f: any) => {

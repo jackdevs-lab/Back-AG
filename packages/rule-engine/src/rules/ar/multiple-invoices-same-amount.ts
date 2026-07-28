@@ -108,7 +108,7 @@ export class MultipleInvoicesSameAmountRule implements IRule {
                     id: f.metadata.clusterIds.join(','),
                     label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - $${f.amount.toFixed(2)}`,
                     details: `Found ${f.metadata.count} invoices for the same amount. Consider using a Recurring Invoice template.`,
-                    deepLink: f.metadata.clusterIds.map((id: string) => `https://qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${id}`)
+                    deepLink: f.metadata.clusterIds.map((id: string) => `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${id}`)
                 }));
 
                 const reportString = formatStandardReport({

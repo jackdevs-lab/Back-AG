@@ -22,7 +22,7 @@ export class InactiveCustomerBalanceRule implements IRule {
             id: c.qbId,
             label: `${c.name || 'Unknown'} — Balance: $${Math.abs(Number(c.balance)).toFixed(2)}`,
             details: `Customer is marked Inactive but has a balance of $${Number(c.balance).toFixed(2)} on the ledger.`,
-            deepLink: `https://qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${c.qbId}`
+            deepLink: `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${c.qbId}`
         }));
 
         const report = formatStandardReport({

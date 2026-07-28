@@ -29,7 +29,7 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
             id: f.metadata.qbId,
             label: `${customerName} - Payment ${f.metadata.qbId}`,
             details: `Payment for $${formattedAmount} on ${dateStr} is not linked to any invoice.`,
-            deepLink: `https://qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+            deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
         };
     });
 

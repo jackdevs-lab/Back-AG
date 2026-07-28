@@ -31,8 +31,8 @@ export function formatReport(
                 label: f.label,
                 details: `Payment (${payDate}) recorded before Bill (${billDate}). Fingerprint: ${fingerprintSegment}`,
                 deepLink: [
-                    `https://qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.metadata.paymentId}`,
-                    `https://qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.metadata.billId}`
+                    `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.metadata.paymentId}`,
+                    `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.metadata.billId}`
                 ]
             };
         }),
