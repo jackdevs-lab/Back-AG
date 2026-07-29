@@ -188,6 +188,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
 });
 
 // POST sync trigger (Bulletproofed with fallback array for sandbox bypass)
+// POST sync trigger 
 router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -201,14 +202,8 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Validate subscription status (Bulletproof Sandbox Bypass)
-        const allowedDemoRealms = [
-            process.env.INTUIT_DEMO_REALM_ID,
-            // Add a direct string fallback of your sandbox realm ID here if you know it, 
-            // guaranteeing it works even if the env var isn't read correctly on your host:
-            // '913035...your_id_here...' 
-        ].filter(Boolean);
-
+        // 1. Validate subscription status 
+        const allowedDemoRealms = [process.env.INTUIT_DEMO_REALM_ID].filter(Boolean);
         const isDemoSandbox = allowedDemoRealms.includes(connection.realmId);
 
         if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox) {
@@ -221,32 +216,30 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             return;
         }
 
-        // 2. Prevent overlapping syncs
+        // 2. Prevent overlapping syncs based on database status
         if (connection.syncStatus === 'SYNCING') {
             throw new AppError('A sync is already in progress for this company.', 409);
         }
 
         // 3. 5-Minute Sync Cooldown Check
-        const timeDelta = Date.now() - connection.updatedAt.getTime();
-        const COOLDOWN_MS = 300000; // 5 minutes in milliseconds
+        if (connection.updatedAt) {
+            const timeDelta = Date.now() - connection.updatedAt.getTime();
+            const COOLDOWN_MS = 300000; // 5 minutes
 
-        if (timeDelta < COOLDOWN_MS) {
-            const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
-
-            res.status(429).json({
-                error: "Cooldown active",
-                retryAfterSeconds
-            });
-            return;
+            if (timeDelta < COOLDOWN_MS) {
+                const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
+                res.status(429).json({
+                    error: "Cooldown active",
+                    retryAfterSeconds
+                });
+                return;
+            }
         }
 
-        // 4. Optimistically update status so UI reflects it immediately
-        await prisma.qbConnection.update({
-            where: { id },
-            data: { syncStatus: 'SYNCING', lastSyncMessage: null }
-        });
+        // REMOVED THE OPTIMISTIC prisma.qbConnection.update HERE.
+        // Let the worker set it to SYNCING safely when it actually starts.
 
-        // 5. Queue the sync job
+        // 4. Queue the sync job
         const job = await syncQueue.add('trigger-sync', {
             realmId: connection.realmId,
             tenantId,
