@@ -4,7 +4,7 @@ import { syncQueue } from './queue';
 import { analysisProcessor, AnalysisJobData } from './processors/analysis-processor';
 import { logger } from '@qb-health/utils';
 import { syncProcessor } from './processors/sync-processor';
-
+import { prisma } from '@qb-health/financial-model';
 console.log(`[WORKER] Starting workers...`);
 console.log(`[WORKER] Redis connection: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 
@@ -19,7 +19,26 @@ const redisConfig = {
     password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null
 };
+// Clear any zombie 'SYNCING' statuses left over from server restarts or crashes
+async function clearStaleSyncStates() {
+    try {
+        const result = await prisma.qbConnection.updateMany({
+            where: { syncStatus: 'SYNCING' },
+            data: {
+                syncStatus: 'ERROR',
+                lastSyncMessage: 'Reset due to worker restart or connection timeout.'
+            }
+        });
+        if (result.count > 0) {
+            logger.warn(`[WORKER] Cleared ${result.count} stale sync states on startup.`);
+        }
+    } catch (err) {
+        logger.error('[WORKER] Failed to clear stale sync states', err);
+    }
+}
 
+// Run the clear routine on boot
+clearStaleSyncStates();
 // ==========================================
 // 1. SYNC WORKER (This was missing!)
 // ==========================================
