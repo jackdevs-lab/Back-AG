@@ -84,7 +84,13 @@ export class OAuthService {
         const encryptedRefreshToken = encrypt(tokenData.refresh_token);
         const tokenExpiry = new Date(Date.now() + (tokenData.expires_in * 1000));
 
-        logger.info('Saving QuickBooks connection...', { tenantId, realmId });
+        // 1. Check if this is the Intuit Demo Account
+        const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
+
+        // 2. If it is the demo, automatically grant it ACTIVE status
+        const defaultSubscriptionStatus = isDemoSandbox ? 'ACTIVE' : 'INACTIVE';
+
+        logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
 
         try {
             await prisma.qbConnection.upsert({
@@ -92,11 +98,12 @@ export class OAuthService {
                     tenantId_realmId: { tenantId, realmId }
                 },
                 update: {
-                    // RE-CONNECTING: Update tokens and set active, but DO NOT touch subscriptionStatus
                     accessToken: encryptedAccessToken,
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
-                    isActive: true
+                    isActive: true,
+                    // If it's the demo account, forcefully keep it ACTIVE just in case
+                    ...(isDemoSandbox && { subscriptionStatus: 'ACTIVE' })
                 },
                 create: {
                     tenantId,
@@ -106,7 +113,7 @@ export class OAuthService {
                     tokenExpiry,
                     isActive: true,
                     syncStatus: 'IDLE',
-                    subscriptionStatus: 'INACTIVE'
+                    subscriptionStatus: defaultSubscriptionStatus // Assigns 'ACTIVE' on first connect
                 }
             });
         } catch (error) {
