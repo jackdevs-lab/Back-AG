@@ -1,4 +1,3 @@
-// apps/worker/src/processors/sync-processor.ts
 import { Job } from 'bullmq';
 import { SyncEngine } from '@qb-health/ingestion';
 import { prisma, RealmId } from '@qb-health/financial-model';
@@ -14,26 +13,37 @@ export interface SyncJobData {
 }
 
 export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: boolean; results?: any[]; error?: string }> {
-    let { realmId, tenantId } = job.data;
-    const { type, connectionId } = job.data;
+    let { realmId, tenantId, connectionId } = job.data;
+    const { type } = job.data;
 
-    if (!realmId && connectionId) {
-        const connection = await prisma.qbConnection.findUnique({
-            where: { id: connectionId },
-            select: { realmId: true, tenantId: true }
+    // 1. Ensure we have a valid connectionId
+    if (!connectionId && tenantId && realmId) {
+        const conn = await prisma.qbConnection.findUnique({
+            where: { tenantId_realmId: { tenantId, realmId } },
+            select: { id: true }
         });
-
-        if (connection) {
-            realmId = connection.realmId;
-            tenantId = connection.tenantId;
-        }
+        if (conn) connectionId = conn.id;
     }
 
-    if (!realmId || !tenantId) {
-        throw new Error(`Sync job failed: realmId and tenantId are required. Got realmId: ${realmId}, tenantId: ${tenantId} for job ${job.id}`);
+    if (!connectionId) {
+        throw new Error(`Sync job failed: connectionId is required for job ${job.id}`);
     }
 
-    const jobLogger = logger.child({ jobId: job.id, realmId, type });
+    // 2. Fetch master connection record strictly via primary key `id`
+    const connection = await prisma.qbConnection.findUnique({
+        where: { id: connectionId },
+        select: { id: true, realmId: true, tenantId: true, syncStatus: true, updatedAt: true }
+    });
+
+    if (!connection) {
+        throw new Error(`Sync job failed: Connection not found for ID ${connectionId}`);
+    }
+
+    // Sync realmId and tenantId from the verified database record
+    realmId = connection.realmId;
+    tenantId = connection.tenantId;
+
+    const jobLogger = logger.child({ jobId: job.id, realmId, type, connectionId });
     jobLogger.info('Starting sync job');
 
     let syncStarted = false;
@@ -42,33 +52,25 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         await job.updateProgress(10);
 
         if (type === 'initial' || type === 'manual') {
-            const connection = await prisma.qbConnection.findUnique({
-                where: {
-                    tenantId_realmId: { tenantId, realmId }
-                },
-                select: { updatedAt: true, syncStatus: true }
-            });
+            if (connection.syncStatus === 'SYNCING') {
+                const errorMsg = 'Sync already in progress';
+                jobLogger.warn(`Aborting job: ${errorMsg}`);
+                return { success: false, error: errorMsg };
+            }
 
-            if (connection) {
-                if (connection.syncStatus === 'SYNCING') {
-                    const errorMsg = 'Sync already in progress';
+            if (type !== 'initial') {
+                const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
+                if (minutesSinceLastUpdate < 5) {
+                    const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
                     jobLogger.warn(`Aborting job: ${errorMsg}`);
-                    return { success: false, error: errorMsg };
-                }
-
-                if (type !== 'initial') {
-                    const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
-                    if (minutesSinceLastUpdate < 5) {
-                        const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
-                        jobLogger.warn(`Aborting job: ${errorMsg}`);
-                        return { success: false, error: 'Cooldown active' };
-                    }
+                    return { success: false, error: 'Cooldown active' };
                 }
             }
         }
 
+        // 3. Optimistically set status to SYNCING using primary key `id`
         await prisma.qbConnection.update({
-            where: { tenantId_realmId: { tenantId, realmId } },
+            where: { id: connectionId },
             data: { syncStatus: 'SYNCING', lastSyncMessage: null }
         });
         syncStarted = true;
@@ -96,25 +98,15 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         const successfulSyncs = results.filter((r: any) => r.status === 'SUCCESS');
 
         if (successfulSyncs.length > 0) {
-            const connection = await prisma.qbConnection.findUnique({
-                where: { tenantId_realmId: { tenantId, realmId } },
-                select: { id: true }
-            });
-
+            // Queue diagnostic analysis. The analysis processor will handle resetting status to IDLE upon completion.
             await analysisQueue.add('run-diagnostics', {
                 realmId,
                 tenantId: tenantId as string,
-                connectionId: connection?.id || ''
+                connectionId
             }, {
                 removeOnComplete: 10
             });
-
-            // Set back to IDLE upon successful completion
-            await prisma.qbConnection.update({
-                where: { tenantId_realmId: { tenantId, realmId } },
-                data: { syncStatus: 'IDLE', lastSyncAt: new Date(), lastSyncMessage: null }
-            });
-
+            syncStarted = false;
             if (successfulSyncs.length === results.length) {
                 jobLogger.info('Sync completed successfully, analysis queued');
             } else {
@@ -128,7 +120,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
             jobLogger.error(errorMsg);
 
             await prisma.qbConnection.update({
-                where: { tenantId_realmId: { tenantId, realmId } },
+                where: { id: connectionId },
                 data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
             });
         }
@@ -140,9 +132,9 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         const errorMsg = error instanceof Error ? error.message : 'Unknown sync error';
         jobLogger.error('Sync job failed', error as Error);
 
-        if (tenantId && realmId) {
+        if (connectionId) {
             await prisma.qbConnection.update({
-                where: { tenantId_realmId: { tenantId, realmId } },
+                where: { id: connectionId },
                 data: {
                     syncStatus: 'ERROR',
                     lastSyncMessage: errorMsg
@@ -152,17 +144,18 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         throw error;
     } finally {
-        if (syncStarted && tenantId && realmId) {
+        if (syncStarted && connectionId) {
             try {
                 const currentConnection = await prisma.qbConnection.findUnique({
-                    where: { tenantId_realmId: { tenantId, realmId } },
+                    where: { id: connectionId },
                     select: { syncStatus: true }
                 });
 
+                // Safety check: if worker crashed before queueing analysis and it's still SYNCING, force ERROR state
                 if (currentConnection?.syncStatus === 'SYNCING') {
                     jobLogger.warn('Job exited while still marked as SYNCING. Forcing ERROR state.');
                     await prisma.qbConnection.update({
-                        where: { tenantId_realmId: { tenantId, realmId } },
+                        where: { id: connectionId },
                         data: {
                             syncStatus: 'ERROR',
                             lastSyncMessage: 'Job terminated unexpectedly or lost database connection.'

@@ -1,5 +1,3 @@
-// apps/worker/src/processors/analysis-processor.ts
-
 import { Job } from 'bullmq';
 import { RuleEngine } from '@qb-health/rule-engine';
 import { HealthScoreCalculator } from '@qb-health/diagnostics';
@@ -20,9 +18,14 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     issueCount: number;
 }> {
     const { realmId, tenantId, connectionId } = job.data;
-    const jobLogger = logger.child({ jobId: job.id, realmId, connectionId }); // Added connectionId to logger context
+    const jobLogger = logger.child({ jobId: job.id, realmId, connectionId });
 
     jobLogger.info('Starting analysis job');
+
+    // Early guardrail: Ensure connectionId is present
+    if (!connectionId) {
+        throw new Error(`Analysis job failed: connectionId is required for job ${job.id}`);
+    }
 
     try {
         await job.updateProgress(10);
@@ -49,12 +52,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         const infoCount = issues.filter((i: any) => i.severity === 'INFO').length;
         const entitiesAffected = issues.reduce((sum: number, i: any) => sum + (i.entities?.length ?? 0), 0);
 
-        // Group by ruleId to ensure we only sum each rule's exposure once.
-        // Each issue now carries metadata.exposureAmount (a numeric) set by the
-        // PipelineRunner — sum that directly instead of regex-parsing report text.
-        // For rules that predate the PipelineRunner (no exposureAmount), we fall
-        // back to the regex parser on the message string.
-        const seenRuleAmounts = new Map<string, Map<string, number>>(); // ruleId → currency → amount
+        const seenRuleAmounts = new Map<string, Map<string, number>>();
 
         for (const issue of issues as any[]) {
             const ruleId: string = issue.ruleId;
@@ -67,10 +65,8 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             const currencyMap = seenRuleAmounts.get(ruleId)!;
 
             if (structured !== undefined && structured > 0) {
-                // Structured path: sum from metadata
                 currencyMap.set(currency, (currencyMap.get(currency) ?? 0) + structured);
             } else if (!currencyMap.has(currency) && typeof issue.message === 'string') {
-                // Fallback: parse the report text (legacy rules not using PipelineRunner)
                 const match = issue.message.match(
                     /(?:total exposure of|exposure:)\s*\$?([\d,.]+(?:\.\d{2})?)/i
                 );
@@ -80,13 +76,11 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             }
         }
 
-        // Flatten to a single USD-equivalent total for the metadata teaser.
-        // Multi-currency sums are stored per-currency in the breakdown.
         let totalExposureValue = 0;
         const currencyBreakdown: Record<string, number> = {};
         for (const currencyMap of seenRuleAmounts.values()) {
             for (const [currency, amount] of currencyMap.entries()) {
-                totalExposureValue += amount; // approximation for score; use breakdown for display
+                totalExposureValue += amount;
                 currencyBreakdown[currency] = (currencyBreakdown[currency] ?? 0) + amount;
             }
         }
@@ -106,7 +100,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                     infoCount,
                     entitiesAffected,
                     totalExposure: totalExposureStr,
-                    // Structured per-currency breakdown — avoids re-parsing totalExposureStr downstream
                     currencyBreakdown
                 },
                 issues: {
@@ -161,10 +154,14 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             issueCount: issues.length
         });
 
-        // **** ADDITION: Update connection status to IDLE on SUCCESS ****
+        // Update connection status to IDLE and set lastSyncAt timestamp using primary key
         await prisma.qbConnection.update({
             where: { id: connectionId },
-            data: { syncStatus: 'IDLE', lastSyncMessage: null } // Clear any previous messages on success
+            data: {
+                syncStatus: 'IDLE',
+                lastSyncAt: new Date(),
+                lastSyncMessage: null
+            }
         });
         jobLogger.info('Connection status updated to IDLE after successful analysis.');
 
@@ -177,28 +174,25 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     } catch (error) {
         jobLogger.error('Analysis job failed', error as Error);
 
-        // **** ADDITION: Update connection status to ERROR on FAILURE ****
         const errorMessage = (error as Error).message || 'Analysis job failed unexpectedly';
-        try {
-            await prisma.qbConnection.update({
-                where: { id: connectionId },
-                data: { syncStatus: 'ERROR', lastSyncMessage: errorMessage }
-            });
-            jobLogger.info('Connection status updated to ERROR after failed analysis.');
-        } catch (statusUpdateError) {
-            jobLogger.error('Failed to update connection status to ERROR after analysis failure', statusUpdateError as Error);
-            // Depending on requirements, you might still want to throw the original error
-            // or the status update error, or log both and proceed.
-            // For now, throwing the original error seems appropriate.
+        if (connectionId) {
+            try {
+                await prisma.qbConnection.update({
+                    where: { id: connectionId },
+                    data: { syncStatus: 'ERROR', lastSyncMessage: errorMessage }
+                });
+                jobLogger.info('Connection status updated to ERROR after failed analysis.');
+            } catch (statusUpdateError) {
+                jobLogger.error('Failed to update connection status to ERROR after analysis failure', statusUpdateError as Error);
+            }
         }
-
 
         try {
             await prisma.diagnosticRun.create({
                 data: {
                     tenantId,
                     connectionId,
-                    healthScore: 0, // Or however you represent a failed run's score
+                    healthScore: 0,
                     status: 'FAILED',
                     errorMessage: errorMessage
                 }
@@ -207,6 +201,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             jobLogger.error('Failed to log failed diagnostic run to DB', dbError as Error);
         }
 
-        throw error; // Re-throw the original error
+        throw error;
     }
 }
