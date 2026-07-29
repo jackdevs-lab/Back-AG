@@ -12,6 +12,7 @@ import {
     QbConnection,
     RuleConfig,
     BrandedSyncStatus,
+    SyncStatus,
 } from '../entities';
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,7 @@ export class PrismaBrandedRepository implements BrandedRepository {
                 }
             },
             data: {
-                syncStatus: status as unknown as string,
+                syncStatus: status as SyncStatus,
                 ...(lastSyncAt !== undefined && { lastSyncAt }),
             },
         }) as unknown as QbConnection;
