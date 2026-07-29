@@ -92,11 +92,11 @@ export class OAuthService {
                     tenantId_realmId: { tenantId, realmId }
                 },
                 update: {
+                    // RE-CONNECTING: Update tokens and set active, but DO NOT touch subscriptionStatus
                     accessToken: encryptedAccessToken,
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
-                    isActive: true,
-                    subscriptionStatus: 'INACTIVE'
+                    isActive: true
                 },
                 create: {
                     tenantId,

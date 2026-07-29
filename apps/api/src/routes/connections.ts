@@ -201,8 +201,103 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Validate subscription status
+        /*1. Validate subscription status(CHNAGE HEERE)
         if (connection.subscriptionStatus !== 'ACTIVE') {
+            res.status(402).json({
+                success: false,
+                code: 'UPGRADE_REQUIRED',
+                message: 'An active subscription is required to run a manual audit sync.',
+                upgradeRequired: true
+            });
+            return;
+        }*/
+        // 1. Validate subscription status (with Intuit Sandbox Bypass)
+        const isDemoSandbox = connection.realmId === process.env.INTUIT_DEMO_REALM_ID; // Add your sandbox realmId to your .env file
+
+        if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox) {
+            res.status(402).json({
+                success: false,
+                code: 'UPGRADE_REQUIRED',
+                message: 'An active subscription is required to run a manual audit sync.',
+                upgradeRequired: true
+            });
+            return;
+        }
+
+        // 2. Prevent overlapping syncs
+        if (connection.syncStatus === 'SYNCING') {
+            throw new AppError('A sync is already in progress for this company.', 409);
+        }
+
+        // 3. 5-Minute Sync Cooldown Check
+        const timeDelta = Date.now() - connection.updatedAt.getTime();
+        const COOLDOWN_MS = 300000; // 5 minutes in milliseconds
+
+        if (timeDelta < COOLDOWN_MS) {
+            const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
+
+            res.status(429).json({
+                error: "Cooldown active",
+                retryAfterSeconds
+            });
+            return; // <-- FIXED: explicitly return void to satisfy TS7030
+        }
+
+        // 4. Optimistically update status so UI reflects it immediately
+        await prisma.qbConnection.update({
+            where: { id },
+            data: { syncStatus: 'SYNCING', lastSyncMessage: null }
+        });
+
+        // 5. Queue the sync job
+        const job = await syncQueue.add('trigger-sync', {
+            realmId: connection.realmId,
+            tenantId,
+            type: 'manual',
+            connectionId: id
+        }, {
+            jobId: `sync-${id}-${Date.now()}`
+        });
+
+        res.json({
+            success: true,
+            jobId: job.id,
+            message: 'Sync queued'
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// POST sync trigger 
+// POST sync trigger 
+router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { id } = req.params;
+        const { tenantId } = req;
+
+        const connection = await prisma.qbConnection.findUnique({
+            where: { id }
+        });
+
+        if (!connection || connection.tenantId !== tenantId) {
+            throw new AppError('Connection not found', 404);
+        }
+
+        /*1. Validate subscription status(CHNAGE HEERE)
+        if (connection.subscriptionStatus !== 'ACTIVE') {
+            res.status(402).json({
+                success: false,
+                code: 'UPGRADE_REQUIRED',
+        message: 'An active subscription is required to run a manual audit sync.',
+        upgradeRequired: true
+    });
+    return;
+}*/
+        // 1. Validate subscription status (with Intuit Sandbox Bypass)
+        const isDemoSandbox = connection.realmId === process.env.INTUIT_DEMO_REALM_ID; // Add your sandbox realmId to your .env file
+
+        if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox) {
             res.status(402).json({
                 success: false,
                 code: 'UPGRADE_REQUIRED',
