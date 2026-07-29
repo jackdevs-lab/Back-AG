@@ -40,7 +40,11 @@ model User {
   @@unique([tenantId, email])
   @@index([tenantId])
 }
-
+enum SyncStatus {
+  IDLE
+  SYNCING
+  ERROR
+}
 model QbConnection {
   id                       String             @id @default(uuid())
   tenantId                 String
@@ -50,7 +54,7 @@ model QbConnection {
   refreshToken             String
   tokenExpiry              DateTime
   lastSyncAt               DateTime?
-  syncStatus               String             @default("IDLE")
+  syncStatus               SyncStatus             @default(IDLE)
   isActive                 Boolean            @default(true)
   subscriptionStatus       SubscriptionStatus @default(INACTIVE)
   paystackCustCode         String?

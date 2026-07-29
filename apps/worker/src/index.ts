@@ -26,7 +26,7 @@ async function clearStaleSyncStates() {
             where: { syncStatus: 'SYNCING' },
             data: {
                 syncStatus: 'ERROR',
-                lastSyncMessage: 'Reset due to worker restart or connection timeout.'
+                lastSyncMessage: 'Cooldown period active'
             }
         });
         if (result.count > 0) {
