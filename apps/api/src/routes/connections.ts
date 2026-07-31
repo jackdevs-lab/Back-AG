@@ -128,6 +128,7 @@ router.get('/:id/overview', async (req: AuthRequest, res: Response, next) => {
 
 // DELETE connection
 // DELETE connection
+// DELETE connection
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -139,7 +140,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             select: {
                 id: true,
                 tenantId: true,
-                refreshToken: true // Target the refresh token directly from the schema
+                refreshToken: true
             }
         });
 
@@ -147,51 +148,48 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // 2. Revoke the OAuth Token with Intuit
+        // 2. Attempt to Revoke the OAuth Token with Intuit
         try {
             if (connection.refreshToken) {
                 const clientId = process.env.QB_CLIENT_ID;
                 const clientSecret = process.env.QB_CLIENT_SECRET;
-                const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
-                // Use the correct v2 developer API endpoint
-                const revokeResponse = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        'Authorization': `Basic ${authHeader}`
-                    },
-                    body: JSON.stringify({ token: connection.refreshToken })
-                });
+                if (clientId && clientSecret) {
+                    const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
-                if (!revokeResponse.ok) {
-                    const errorText = await revokeResponse.text();
-                    console.error('Intuit Token Revocation Failed:', errorText);
+                    const revokeResponse = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'Authorization': `Basic ${authHeader}`
+                        },
+                        body: JSON.stringify({ token: connection.refreshToken })
+                    });
 
-                    // Throw an error instead of silently failing!
-                    // If Intuit fails to revoke, we abort and keep the local record intact.
-                    throw new AppError('Failed to disconnect from QuickBooks. Please try again.', 500);
+                    if (!revokeResponse.ok) {
+                        const errorText = await revokeResponse.text();
+                        // Log as a warning including the status code, since the body might be blank
+                        console.warn(`Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`, errorText);
+                    }
+                } else {
+                    console.warn('Missing QB_CLIENT_ID or QB_CLIENT_SECRET. Skipping external revocation.');
                 }
             }
         } catch (revokeError) {
-            console.error('Error during Intuit token revocation:', revokeError);
-            // Bubble the error up to the global error handler
-            throw revokeError;
+            console.warn('Network error during Intuit token revocation:', revokeError);
         }
 
-        // 3. Delete the local database record
-        // This will now ONLY run if the Intuit revocation succeeds
+        // 3. ALWAYS delete the local database record 
+        // This prevents the connection from becoming a permanent "zombie"
         await prisma.qbConnection.delete({
             where: { id }
         });
 
         res.json({
             success: true,
-            message: 'Connection deleted and token revoked'
+            message: 'Connection deleted'
         });
-
-        // ... catch block ...
     } catch (error) {
         next(error);
     }
