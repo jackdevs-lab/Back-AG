@@ -156,24 +156,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
 
                 if (clientId && clientSecret) {
                     const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+                    const formData = new URLSearchParams();
+                    formData.append('token', connection.refreshToken);
 
                     const revokeResponse = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
                         method: 'POST',
                         headers: {
                             'Accept': 'application/json',
-                            'Content-Type': 'application/json',
+                            'Content-Type': 'application/x-www-form-urlencoded',
                             'Authorization': `Basic ${authHeader}`
                         },
-                        body: JSON.stringify({ token: connection.refreshToken })
+                        body: formData.toString()
                     });
 
                     if (!revokeResponse.ok) {
                         const errorText = await revokeResponse.text();
-                        // Log as a warning including the status code, since the body might be blank
                         console.warn(`Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`, errorText);
                     }
-                } else {
-                    console.warn('Missing QB_CLIENT_ID or QB_CLIENT_SECRET. Skipping external revocation.');
                 }
             }
         } catch (revokeError) {
