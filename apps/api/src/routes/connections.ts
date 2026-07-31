@@ -152,32 +152,36 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             if (connection.refreshToken) {
                 const clientId = process.env.QB_CLIENT_ID;
                 const clientSecret = process.env.QB_CLIENT_SECRET;
-
-                // Intuit requires a Base64 encoded string of "clientId:clientSecret"
                 const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
-                const revokeResponse = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/revoke', {
+                // Use the correct v2 developer API endpoint
+                const revokeResponse = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
                         'Content-Type': 'application/json',
                         'Authorization': `Basic ${authHeader}`
                     },
-                    // Send the refreshToken to Intuit
                     body: JSON.stringify({ token: connection.refreshToken })
                 });
 
                 if (!revokeResponse.ok) {
                     const errorText = await revokeResponse.text();
                     console.error('Intuit Token Revocation Failed:', errorText);
-                    // Silently fail here so the local deletion still executes
+
+                    // Throw an error instead of silently failing!
+                    // If Intuit fails to revoke, we abort and keep the local record intact.
+                    throw new AppError('Failed to disconnect from QuickBooks. Please try again.', 500);
                 }
             }
         } catch (revokeError) {
-            console.error('Network error during Intuit token revocation:', revokeError);
+            console.error('Error during Intuit token revocation:', revokeError);
+            // Bubble the error up to the global error handler
+            throw revokeError;
         }
 
         // 3. Delete the local database record
+        // This will now ONLY run if the Intuit revocation succeeds
         await prisma.qbConnection.delete({
             where: { id }
         });
@@ -186,6 +190,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             success: true,
             message: 'Connection deleted and token revoked'
         });
+
+        // ... catch block ...
     } catch (error) {
         next(error);
     }
