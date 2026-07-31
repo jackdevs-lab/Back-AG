@@ -154,21 +154,31 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             const clientId = process.env.QB_CLIENT_ID?.trim();
             const clientSecret = process.env.QB_CLIENT_SECRET?.trim();
 
+            // ... (previous setup code) ...
+
             if (refreshToken && clientId && clientSecret) {
                 const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
                 const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
+
+                // 1. Format payload correctly per OAuth 2.0 revocation specs
+                const formData = new URLSearchParams({
+                    token: refreshToken,
+                    token_type_hint: 'refresh_token' // Optional but highly recommended
+                });
 
                 const revokeResponse = await fetch(revokeUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded', // Changed from application/json
                         'Authorization': `Basic ${authHeader}`
                     },
-                    body: JSON.stringify({ token: refreshToken })
+                    body: formData.toString() // Send as encoded string
                 });
 
                 if (!revokeResponse.ok) {
+                    // Intuit returns 400 if the token is ALREADY expired or revoked.
+                    // If this happens, your local DB is just out of sync with Intuit.
                     const errorText = await revokeResponse.text();
                     console.warn(
                         `Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`,
@@ -178,6 +188,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
                     console.log(`Successfully revoked Intuit token for connection ${id}`);
                 }
             } else {
+
                 console.warn('Skipping Intuit revocation: Missing client credentials or refresh token.');
             }
         } catch (revokeError) {
