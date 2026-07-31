@@ -133,7 +133,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
         const { tenantId } = req;
-
         // 1. Fetch connection, explicitly selecting the refreshToken
         const connection = await prisma.qbConnection.findUnique({
             where: { id },
@@ -153,6 +152,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             const refreshToken = connection.refreshToken?.trim();
             const clientId = process.env.QB_CLIENT_ID?.trim();
             const clientSecret = process.env.QB_CLIENT_SECRET?.trim();
+            console.log(`[QB Revoke Debug] Connection ${id}:`, {
+                tokenLength: refreshToken?.length,
+                tokenPrefix: refreshToken?.slice(0, 6),
+                hasClientId: !!clientId,
+                hasClientSecret: !!clientSecret,
+            });
 
             // ... (previous setup code) ...
 
