@@ -149,43 +149,40 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
         }
 
         // 2. Attempt to Revoke the OAuth Token with Intuit
-        // 2. Attempt to Revoke the OAuth Token with Intuit
         try {
-            if (connection.refreshToken) {
-                const clientId = process.env.QB_CLIENT_ID;
-                const clientSecret = process.env.QB_CLIENT_SECRET;
+            const refreshToken = connection.refreshToken?.trim();
+            const clientId = process.env.QB_CLIENT_ID?.trim();
+            const clientSecret = process.env.QB_CLIENT_SECRET?.trim();
 
-                if (clientId && clientSecret) {
-                    const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+            if (refreshToken && clientId && clientSecret) {
+                const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+                const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
 
-                    // Keep as a URLSearchParams object instance
-                    const formData = new URLSearchParams();
-                    formData.append('token', connection.refreshToken);
+                const revokeResponse = await fetch(revokeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${authHeader}`
+                    },
+                    body: JSON.stringify({ token: refreshToken })
+                });
 
-                    // Kept sandbox-specific endpoint URL
-                    const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
-
-                    const revokeResponse = await fetch(revokeUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Authorization': `Basic ${authHeader}`,
-                            // REMOVED manual Content-Type header.
-                            // Passing formData directly lets fetch set the boundary and headers properly.
-                        },
-                        body: formData // Pass the object instance directly, do NOT call .toString()
-                    });
-
-                    if (!revokeResponse.ok) {
-                        const errorText = await revokeResponse.text();
-                        console.warn(`Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`, errorText);
-                    }
+                if (!revokeResponse.ok) {
+                    const errorText = await revokeResponse.text();
+                    console.warn(
+                        `Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`,
+                        errorText || '<Empty Body Received from Gateway>'
+                    );
+                } else {
+                    console.log(`Successfully revoked Intuit token for connection ${id}`);
                 }
+            } else {
+                console.warn('Skipping Intuit revocation: Missing client credentials or refresh token.');
             }
         } catch (revokeError) {
             console.warn('Network error during Intuit token revocation:', revokeError);
         }
-
 
         // 3. ALWAYS delete the local database record 
         // This prevents the connection from becoming a permanent "zombie"
@@ -201,7 +198,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
         next(error);
     }
 });
-
 // PATCH connection
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
