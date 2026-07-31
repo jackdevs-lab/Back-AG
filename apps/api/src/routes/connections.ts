@@ -3,7 +3,7 @@ import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
 import { AuthRequest } from '../middleware/auth';
 import { syncQueue } from '../queue';
-
+import { decrypt } from '@qb-health/utils';
 const router: Router = Router();
 
 // GET all connections for the current tenant
@@ -133,7 +133,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
         const { tenantId } = req;
-        // 1. Fetch connection, explicitly selecting the refreshToken
+
         const connection = await prisma.qbConnection.findUnique({
             where: { id },
             select: {
@@ -147,43 +147,35 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // 2. Attempt to Revoke the OAuth Token with Intuit
         try {
-            const refreshToken = connection.refreshToken?.trim();
+            const rawEncryptedToken = connection.refreshToken?.trim();
             const clientId = process.env.QB_CLIENT_ID?.trim();
             const clientSecret = process.env.QB_CLIENT_SECRET?.trim();
-            console.log(`[QB Revoke Debug] Connection ${id}:`, {
-                tokenLength: refreshToken?.length,
-                tokenPrefix: refreshToken?.slice(0, 6),
-                hasClientId: !!clientId,
-                hasClientSecret: !!clientSecret,
-            });
 
-            // ... (previous setup code) ...
+            if (rawEncryptedToken && clientId && clientSecret) {
+                // 1. DECRYPT the stored refresh token first
+                const decryptedRefreshToken = decrypt(rawEncryptedToken).trim();
 
-            if (refreshToken && clientId && clientSecret) {
                 const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
                 const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
 
-                // 1. Format payload correctly per OAuth 2.0 revocation specs
+                // 2. Pass the raw decrypted token to Intuit
                 const formData = new URLSearchParams({
-                    token: refreshToken,
-                    token_type_hint: 'refresh_token' // Optional but highly recommended
+                    token: decryptedRefreshToken,
+                    token_type_hint: 'refresh_token'
                 });
 
                 const revokeResponse = await fetch(revokeUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/x-www-form-urlencoded', // Changed from application/json
+                        'Content-Type': 'application/x-www-form-urlencoded',
                         'Authorization': `Basic ${authHeader}`
                     },
-                    body: formData.toString() // Send as encoded string
+                    body: formData.toString()
                 });
 
                 if (!revokeResponse.ok) {
-                    // Intuit returns 400 if the token is ALREADY expired or revoked.
-                    // If this happens, your local DB is just out of sync with Intuit.
                     const errorText = await revokeResponse.text();
                     console.warn(
                         `Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`,
@@ -193,15 +185,13 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
                     console.log(`Successfully revoked Intuit token for connection ${id}`);
                 }
             } else {
-
                 console.warn('Skipping Intuit revocation: Missing client credentials or refresh token.');
             }
         } catch (revokeError) {
-            console.warn('Network error during Intuit token revocation:', revokeError);
+            console.warn('Error during Intuit token decryption or revocation:', revokeError);
         }
 
-        // 3. ALWAYS delete the local database record 
-        // This prevents the connection from becoming a permanent "zombie"
+        // 3. Delete local connection record
         await prisma.qbConnection.delete({
             where: { id }
         });
