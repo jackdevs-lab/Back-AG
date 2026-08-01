@@ -23,7 +23,25 @@ router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRoute
 router.get('/version', (req, res) => {
     res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
 });
+router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
+    const realmId = req.query.realmId as string;
 
+    if (realmId) {
+        try {
+            // Delete the connection to keep the UI in sync
+            await prisma.qbConnection.deleteMany({
+                where: { realmId }
+            });
+            logger.info(`Successfully processed external Intuit disconnect for realmId: ${realmId}`);
+        } catch (error) {
+            logger.error(`Failed to delete qbConnection on external disconnect for realmId: ${realmId}`, error);
+        }
+    }
+
+    // Redirect the user to your frontend disconnected page
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    res.redirect(`${frontendUrl}/disconnected`);
+});
 // Protected routes
 router.use(authMiddleware);
 
