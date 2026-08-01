@@ -4,6 +4,7 @@ import { Webhook } from 'svix';
 import { prisma } from '@qb-health/financial-model';
 import crypto from 'crypto';
 import { Prisma } from '@qb-health/financial-model';
+import { logger } from 'packages/utils/dist';
 
 const router: Router = Router();
 
@@ -245,6 +246,63 @@ async function handleSubscriptionDisable(data: any): Promise<void> {
 
     console.log(`Paystack webhook: Disabled subscription (status=INACTIVE) for connectionId: ${existingConnection.id} via subscription.disable`);
 }
+router.post('/intuit', async (req: Request, res: Response) => {
+    try {
+        const signature = req.headers['intuit-signature'] as string;
+        const payload = req.body.toString(); // Works because of express.raw() in main router
 
+        // 1. Verify the webhook signature to ensure it actually came from Intuit
+        const intuitVerifierToken = process.env.INTUIT_WEBHOOK_TOKEN; // Add this to your .env
+        if (!intuitVerifierToken) {
+            logger.error('INTUIT_WEBHOOK_TOKEN is missing from environment variables');
+            return res.status(500).send('Configuration Error');
+        }
+
+        const hash = crypto
+            .createHmac('sha256', intuitVerifierToken)
+            .update(payload)
+            .digest('base64');
+
+        if (signature !== hash) {
+            logger.warn('Intuit Webhook Signature Mismatch', { expected: hash, received: signature });
+            return res.status(401).send('Forbidden');
+        }
+
+        // 2. Parse the payload safely
+        const eventData = JSON.parse(payload);
+
+        // 3. Process Disconnect Events
+        if (eventData.eventNotifications && Array.isArray(eventData.eventNotifications)) {
+            for (const notification of eventData.eventNotifications) {
+                const realmId = notification.realmId;
+
+                // Check if the event is a connection deletion
+                if (notification.dataChangeEvent && notification.dataChangeEvent.entities) {
+                    const isDisconnect = notification.dataChangeEvent.entities.some(
+                        (entity: any) => entity.name === 'Entitlements' && entity.operation === 'Delete'
+                    );
+
+                    if (isDisconnect) {
+                        logger.info(`Intuit Webhook received disconnect event for realmId: ${realmId}`);
+
+                        // Delete the connection from the database
+                        const deleted = await prisma.qbConnection.deleteMany({
+                            where: { realmId: realmId }
+                        });
+
+                        logger.info(`Cleaned up DB for external disconnect. Rows affected: ${deleted.count}`);
+                    }
+                }
+            }
+        }
+
+        // Always return 200 OK to acknowledge receipt, otherwise Intuit will retry
+        return res.status(200).send('OK');
+    } catch (error) {
+        logger.error('Error processing Intuit Webhook', error);
+        // Add 'return' here
+        return res.status(500).send('Internal Server Error');
+    }
+});
 
 export default router;
