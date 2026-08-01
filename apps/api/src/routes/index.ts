@@ -24,21 +24,30 @@ router.get('/version', (req, res) => {
     res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
 });
 router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
-    const realmId = req.query.realmId as string;
+    // 1. Log the exact raw query string Intuit sends us
+    logger.info('External disconnect callback triggered', { rawQuery: req.query });
+
+    // 2. Catch case-sensitivity issues (realmId vs realmid)
+    const realmId = (req.query.realmId || req.query.realmid) as string;
 
     if (realmId) {
         try {
-            // Delete the connection to keep the UI in sync
-            await prisma.qbConnection.deleteMany({
-                where: { realmId }
+            // 3. Delete and capture the count to ensure Prisma actually found it
+            const deleted = await prisma.qbConnection.deleteMany({
+                where: { realmId: realmId }
             });
-            logger.info(`Successfully processed external Intuit disconnect for realmId: ${realmId}`);
+
+            logger.info('Disconnect DB cleanup completed', {
+                realmId,
+                deletedCount: deleted.count
+            });
         } catch (error) {
             logger.error(`Failed to delete qbConnection on external disconnect for realmId: ${realmId}`, error);
         }
+    } else {
+        logger.warn('Disconnect callback hit, but no realmId was found in the URL query parameters.');
     }
 
-    // Redirect the user to your frontend disconnected page
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     res.redirect(`${frontendUrl}/disconnect`);
 });
