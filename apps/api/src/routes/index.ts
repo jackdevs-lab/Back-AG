@@ -40,7 +40,7 @@ router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
 
     // Redirect the user to your frontend disconnected page
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/disconnected`);
+    res.redirect(`${frontendUrl}/disconnect`);
 });
 // Protected routes
 router.use(authMiddleware);
