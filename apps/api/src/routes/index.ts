@@ -24,32 +24,20 @@ router.get('/version', (req, res) => {
     res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
 });
 router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
-    // 1. Log the exact raw query string Intuit sends us
-    logger.info('External disconnect callback triggered', { rawQuery: req.query });
+    // 1. Log the incoming browser redirect for visibility
+    logger.info('External disconnect browser redirect triggered', {
+        rawQuery: req.query
+    });
 
-    // 2. Catch case-sensitivity issues (realmId vs realmid)
     const realmId = (req.query.realmId || req.query.realmid) as string;
-
-    if (realmId) {
-        try {
-            // 3. Delete and capture the count to ensure Prisma actually found it
-            const deleted = await prisma.qbConnection.deleteMany({
-                where: { realmId: realmId }
-            });
-
-            logger.info('Disconnect DB cleanup completed', {
-                realmId,
-                deletedCount: deleted.count
-            });
-        } catch (error) {
-            logger.error(`Failed to delete qbConnection on external disconnect for realmId: ${realmId}`, error);
-        }
-    } else {
+    if (!realmId) {
         logger.warn('Disconnect callback hit, but no realmId was found in the URL query parameters.');
     }
 
+    // 2. Safely redirect the user's browser to the frontend landing page.
+    // (Actual DB cleanup is handled securely in the background by POST /webhooks/intuit)
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/disconnect`);
+    return res.redirect(`${frontendUrl}/disconnect`);
 });
 // Protected routes
 router.use(authMiddleware);

@@ -246,13 +246,16 @@ async function handleSubscriptionDisable(data: any): Promise<void> {
 
     console.log(`Paystack webhook: Disabled subscription (status=INACTIVE) for connectionId: ${existingConnection.id} via subscription.disable`);
 }
+// Inside apps/api/src/routes/webhooks.ts
+
 router.post('/intuit', async (req: Request, res: Response) => {
     try {
         const signature = req.headers['intuit-signature'] as string;
-        const payload = JSON.stringify(req.body);
 
-        // 1. Verify the webhook signature to ensure it actually came from Intuit
-        const intuitVerifierToken = process.env.INTUIT_WEBHOOK_TOKEN; // Add this to your .env
+        // Fix: Convert the raw Buffer to a UTF-8 string properly
+        const payload = req.body instanceof Buffer ? req.body.toString('utf-8') : JSON.stringify(req.body);
+
+        const intuitVerifierToken = process.env.INTUIT_WEBHOOK_TOKEN;
         if (!intuitVerifierToken) {
             logger.error('INTUIT_WEBHOOK_TOKEN is missing from environment variables');
             return res.status(500).send('Configuration Error');
@@ -268,15 +271,12 @@ router.post('/intuit', async (req: Request, res: Response) => {
             return res.status(401).send('Forbidden');
         }
 
-        // 2. Parse the payload safely
-        const eventData = JSON.parse(payload);
+        const eventData = JSON.parse(payload); // Now parses correctly
 
-        // 3. Process Disconnect Events
         if (eventData.eventNotifications && Array.isArray(eventData.eventNotifications)) {
             for (const notification of eventData.eventNotifications) {
                 const realmId = notification.realmId;
 
-                // Check if the event is a connection deletion
                 if (notification.dataChangeEvent && notification.dataChangeEvent.entities) {
                     const isDisconnect = notification.dataChangeEvent.entities.some(
                         (entity: any) => entity.name === 'Entitlements' && entity.operation === 'Delete'
@@ -285,7 +285,6 @@ router.post('/intuit', async (req: Request, res: Response) => {
                     if (isDisconnect) {
                         logger.info(`Intuit Webhook received disconnect event for realmId: ${realmId}`);
 
-                        // Delete the connection from the database
                         const deleted = await prisma.qbConnection.deleteMany({
                             where: { realmId: realmId }
                         });
@@ -296,11 +295,9 @@ router.post('/intuit', async (req: Request, res: Response) => {
             }
         }
 
-        // Always return 200 OK to acknowledge receipt, otherwise Intuit will retry
         return res.status(200).send('OK');
     } catch (error) {
         logger.error('Error processing Intuit Webhook', error);
-        // Add 'return' here
         return res.status(500).send('Internal Server Error');
     }
 });

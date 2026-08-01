@@ -6,11 +6,23 @@ import { verifyPaystackSignature } from '../../middleware/paystackWebhook';
 const router: Router = Router();
 
 router.post('/', verifyPaystackSignature, async (req: Request, res: Response) => {
+    // Acknowledge receipt to Paystack immediately to prevent timeouts/retries
     res.status(200).send('OK');
 
     try {
-        const payload = JSON.parse(req.body.toString());
+        // Safely parse payload whether req.body is a Buffer, string, or already parsed object
+        const payload = typeof req.body === 'string'
+            ? JSON.parse(req.body)
+            : Buffer.isBuffer(req.body)
+                ? JSON.parse(req.body.toString('utf-8'))
+                : req.body;
+
         const { event, data } = payload;
+
+        if (!event || !data) {
+            logger.warn('Paystack webhook received malformed payload structure');
+            return;
+        }
 
         logger.info(`Processing Paystack webhook event: ${event}`);
 
@@ -51,7 +63,7 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
                     await prisma.qbConnection.updateMany({
                         where: { paystackSubscriptionCode: subscriptionCode },
                         data: {
-                            subscriptionStatus: 'INACTIVE' // Or 'INACTIVE' depending on your enum mapping
+                            subscriptionStatus: 'INACTIVE'
                         }
                     });
                 }
@@ -62,7 +74,7 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
                 logger.info(`Unhandled Paystack webhook event type: ${event}`);
         }
     } catch (error) {
-        logger.error('Error processing Paystack webhook:', error);
+        logger.error('Error processing Paystack webhook background task:', error);
     }
 });
 
