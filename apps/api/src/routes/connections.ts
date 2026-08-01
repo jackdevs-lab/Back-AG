@@ -1,9 +1,9 @@
 import { Router, Response } from 'express';
 import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
-import { AuthRequest } from '../middleware/auth';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { syncQueue } from '../queue';
-import { decrypt } from '@qb-health/utils';
+import { decrypt, logger } from '@qb-health/utils';
 const router: Router = Router();
 
 // GET all connections for the current tenant
@@ -123,6 +123,77 @@ router.get('/:id/overview', async (req: AuthRequest, res: Response, next) => {
         });
     } catch (error) {
         next(error);
+    }
+});
+
+// Safety-net endpoint to verify token health and purge if revoked
+router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
+    try {
+        const tenantId = req.tenantId;
+        const connections = await prisma.qbConnection.findMany({
+            where: { tenantId }
+        });
+
+        for (const conn of connections) {
+            try {
+                // Lightweight ping to QuickBooks to test if the token is still valid
+                const response = await fetch(
+                    `https://sandbox-quickbooks.api.intuit.com/v3/company/${conn.realmId}/companyinfo/${conn.realmId}`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${conn.accessToken}`,
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+
+                // If QuickBooks revokes access, it returns a 401 Unauthorized
+                if (response.status === 401) {
+                    logger.warn(`Token expired or revoked externally for realmId: ${conn.realmId}. Purging.`);
+                    await prisma.qbConnection.delete({ where: { id: conn.id } });
+                }
+            } catch (apiError) {
+                logger.error(`Failed to verify QB connection health for realmId: ${conn.realmId}`, apiError);
+            }
+        }
+
+        return res.status(200).json({ success: true, message: 'Sync check complete' });
+    } catch (error) {
+        logger.error('Error in verify-and-sync route', error);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+// Inside apps/api/src/routes/connections.ts (GET /:id/status route)
+
+router.get('/:id/status', authMiddleware, async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    const { tenantId } = req;
+
+    const connection = await prisma.qbConnection.findUnique({ where: { id } });
+    if (!connection || connection.tenantId !== tenantId) {
+        return res.status(404).json({ error: 'Connection not found' });
+    }
+
+    try {
+        // Quick health check against Intuit
+        const qbCheck = await fetch(
+            `https://sandbox-quickbooks.api.intuit.com/v3/company/${connection.realmId}/companyinfo/${connection.realmId}`,
+            {
+                headers: { Authorization: `Bearer ${connection.accessToken}`, Accept: 'application/json' }
+            }
+        );
+
+        if (qbCheck.status === 401) {
+            // Self-heal: Automatically purge the dead connection on the spot
+            await prisma.qbConnection.delete({ where: { id: connection.id } });
+            logger.info(`Lazy cleanup purged revoked connection ID: ${id}`);
+            return res.status(410).json({ error: 'Connection expired or revoked', disconnected: true });
+        }
+
+        return res.json({ status: 'ACTIVE', connectionStatus: connection.syncStatus });
+    } catch (error) {
+        logger.error('Error validating connection status', error);
+        return res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
