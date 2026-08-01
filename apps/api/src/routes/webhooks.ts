@@ -4,7 +4,7 @@ import { Webhook } from 'svix';
 import { prisma } from '@qb-health/financial-model';
 import crypto from 'crypto';
 import { Prisma } from '@qb-health/financial-model';
-import { logger } from 'packages/utils/dist';
+import { logger } from '@qb-health/utils';
 
 const router: Router = Router();
 
