@@ -249,7 +249,7 @@ async function handleSubscriptionDisable(data: any): Promise<void> {
 router.post('/intuit', async (req: Request, res: Response) => {
     try {
         const signature = req.headers['intuit-signature'] as string;
-        const payload = req.body.toString(); // Works because of express.raw() in main router
+        const payload = JSON.stringify(req.body);
 
         // 1. Verify the webhook signature to ensure it actually came from Intuit
         const intuitVerifierToken = process.env.INTUIT_WEBHOOK_TOKEN; // Add this to your .env
