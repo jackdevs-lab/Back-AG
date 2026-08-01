@@ -23,6 +23,13 @@ router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRoute
 router.get('/version', (req, res) => {
     res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
 });
+
+router.get('/launch', (req: Request, res: Response) => {
+    logger.info('Intuit launch URL triggered', { rawQuery: req.query });
+    const frontendUrl = process.env.FRONTEND_URL || 'https://auditorgen.com';
+    return res.redirect(`${frontendUrl}/dashboard`);
+});
+
 router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
     // 1. Log the incoming browser redirect for visibility
     logger.info('External disconnect browser redirect triggered', {
