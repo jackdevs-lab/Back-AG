@@ -4,9 +4,8 @@ import { AppError } from './error-handler';
 import { prisma } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 
-// Initialize Clerk Backend Client
-export const clerkClient = createClerkClient({ 
-    secretKey: process.env.CLERK_SECRET_KEY 
+export const clerkClient = createClerkClient({
+    secretKey: process.env.CLERK_SECRET_KEY
 });
 
 export interface AuthRequest extends Request {
@@ -14,18 +13,16 @@ export interface AuthRequest extends Request {
     userId?: string;
 }
 
-/**
- * Clerk Authentication Middleware with JIT Provisioning
- * 
- * Verifies the Clerk JWT and automatically ensures a corresponding 
- * Tenant record exists in our database. This removes the immediate 
- * necessity for webhooks.
- */
+
 export const authMiddleware = async (
     req: AuthRequest,
     res: Response,
     next: NextFunction
 ) => {
+    // Bypass auth for the launch route
+    if (req.path === '/launch' || req.baseUrl?.endsWith('/launch')) {
+        return next();
+    }
     try {
         let authHeader = req.headers.authorization;
         let tenantIdHeader = req.headers['x-tenant-id'] as string;
@@ -49,9 +46,9 @@ export const authMiddleware = async (
             const decoded = await verifyToken(token, {
                 secretKey: process.env.CLERK_SECRET_KEY
             });
-            
+
             const userId = decoded.sub;
-            const orgId = decoded.org_id; 
+            const orgId = decoded.org_id;
 
             // Priority: Organization context takes precedence
             const derivedTenantId = (orgId as string) || userId;
@@ -73,8 +70,8 @@ export const authMiddleware = async (
                     let email = `tenant_${derivedTenantId}@clerk.system`;
 
                     if (orgId) {
-                        const org = await clerkClient.organizations.getOrganization({ 
-                            organizationId: orgId as string 
+                        const org = await clerkClient.organizations.getOrganization({
+                            organizationId: orgId as string
                         });
                         name = org.name;
                     } else {
