@@ -80,11 +80,14 @@ export const authMiddleware = async (
                         email = user.emailAddresses[0]?.emailAddress || email;
                     }
 
+                    const isReviewer = email === 'intuit-review@auditorgen.com';
+
                     tenant = await prisma!.tenant.create({
                         data: {
                             id: derivedTenantId,
                             name,
-                            email
+                            email,
+                            isBypassed: isReviewer // Automatically whitelists the Intuit reviewer
                         }
                     });
                     logger.info(`JIT: Successfully provisioned tenant ${derivedTenantId}`);

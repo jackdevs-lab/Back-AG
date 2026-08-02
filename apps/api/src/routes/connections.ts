@@ -5,7 +5,9 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { syncQueue } from '../queue';
 import { decrypt, logger } from '@qb-health/utils';
 const router: Router = Router();
-
+const QB_BASE_URL = process.env.QB_ENVIRONMENT === 'sandbox'
+    ? 'https://sandbox-quickbooks.api.intuit.com'
+    : 'https://quickbooks.api.intuit.com';
 // GET all connections for the current tenant
 router.get('/', async (req: AuthRequest, res: Response, next) => {
     try {
@@ -134,11 +136,16 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
             where: { tenantId }
         });
 
+        // Dynamically set the Intuit API URL based on the environment
+        const QB_BASE_URL = process.env.QB_ENVIRONMENT?.toLowerCase() === 'sandbox'
+            ? 'https://sandbox-quickbooks.api.intuit.com'
+            : 'https://quickbooks.api.intuit.com';
+
         for (const conn of connections) {
             try {
                 // Lightweight ping to QuickBooks to test if the token is still valid
                 const response = await fetch(
-                    `https://sandbox-quickbooks.api.intuit.com/v3/company/${conn.realmId}/companyinfo/${conn.realmId}`,
+                    `${QB_BASE_URL}/v3/company/${conn.realmId}/companyinfo/${conn.realmId}`,
                     {
                         headers: {
                             'Authorization': `Bearer ${conn.accessToken}`,
@@ -316,19 +323,24 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
         const { id } = req.params;
         const { tenantId } = req;
 
+        // Fetch connection AND the tenant to check the isBypassed flag
         const connection = await prisma.qbConnection.findUnique({
-            where: { id }
+            where: { id },
+            include: { tenant: true }
         });
 
         if (!connection || connection.tenantId !== tenantId) {
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Validate subscription status 
+        // 1. Validate subscription status with bypass logic
+        const isSandboxEnv = process.env.QB_ENVIRONMENT?.toLowerCase() === 'sandbox';
         const allowedDemoRealms = [process.env.INTUIT_DEMO_REALM_ID].filter(Boolean);
         const isDemoSandbox = allowedDemoRealms.includes(connection.realmId);
+        const isBypassed = connection.tenant?.isBypassed || false;
 
-        if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox) {
+        // Block ONLY if they have no active sub AND aren't hitting a sandbox/reviewer bypass
+        if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox && !isSandboxEnv && !isBypassed) {
             res.status(402).json({
                 success: false,
                 code: 'UPGRADE_REQUIRED',
