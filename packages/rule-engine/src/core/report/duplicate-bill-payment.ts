@@ -27,7 +27,7 @@ export function formatReport(realmId: string, reportData: any, unscannable: any[
         recommendation: 'Review the identified bill payments to ensure they are not accidental double-payments. Void or delete any confirmed redundant entries to maintain accurate AP balances.'
     });
     const integrityFindingsSection = unscannable.length > 0
-        ? `\n\n### Data Integrity Warnings\nFound ${unscannable.length} records that could not be fully analyzed due to structural data issues. Unscannable IDs: ${unscannable.map(u => u.qbId).join(', ')}.`
+        ? `\n\nData Integrity Warnings\nFound ${unscannable.length} records that could not be fully analyzed due to structural data issues. Unscannable IDs: ${unscannable.map(u => u.qbId).join(', ')}.`
         : '';
 
     return standardReport + integrityFindingsSection;

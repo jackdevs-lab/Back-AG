@@ -123,6 +123,7 @@ export class DeletedAccountReferenceRule implements IRule {
                         metadata: {
                             accountId: f.accountId,
                             detailType: f.detailType,
+                            txnType: f.txn.type,
                             impactScore: 80,
                             fingerprint: generateFingerprint([f.txn.qbId, f.accountId]),
                         }
