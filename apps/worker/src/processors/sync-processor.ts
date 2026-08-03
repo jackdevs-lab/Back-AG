@@ -60,7 +60,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
             if (type !== 'initial') {
                 const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
-                if (minutesSinceLastUpdate < 5) {
+                if (minutesSinceLastUpdate < 1) {
                     const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
                     jobLogger.warn(`Aborting job: ${errorMsg}`);
                     return { success: false, error: 'Cooldown active' };
