@@ -107,7 +107,8 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
                         data: {
                             id: tenantId,
                             name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'New User',
-                            email: user.emailAddresses[0]?.emailAddress || `user_${tenantId}@clerk.system`
+                            email: user.emailAddresses[0]?.emailAddress || `user_${tenantId}@clerk.system`,
+                            isBypassed: user.emailAddresses[0]?.emailAddress === 'intuit-review@auditorgen.com'
                         }
                     });
                 } else {
@@ -124,8 +125,17 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
             }
         }
 
-        // 4. Save connection (Now safely scoped)
+        // 4. Save connection
         await oauthService.saveConnection(tenantId, realmId, tokenData);
+
+        // 🔒 AUTO-ACTIVATE BYPASS TENANTS: Ensure reviewer connection is marked ACTIVE
+        const isBypassedTenant = tenant?.isBypassed || tenant?.email === 'intuit-review@auditorgen.com';
+        if (isBypassedTenant) {
+            await prisma.qbConnection.updateMany({
+                where: { tenantId, realmId },
+                data: { subscriptionStatus: 'ACTIVE' }
+            });
+        }
 
         // 5. Trigger initial sync
         await syncQueue.add('trigger-sync', { realmId, tenantId, type: 'initial' });
@@ -139,7 +149,6 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
         next(error);
     }
 });
-
 router.use('/connections', connectionsRouter);
 router.use('/diagnostics', diagnosticsRouter);
 router.use('/reports', reportsRouter);
