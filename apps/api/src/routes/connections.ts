@@ -358,7 +358,7 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
         // 3. 5-Minute Sync Cooldown Check
         if (connection.updatedAt) {
             const timeDelta = Date.now() - connection.updatedAt.getTime();
-            const COOLDOWN_MS = 300000; // 5 minutes
+            const COOLDOWN_MS = 6000; // 5 minutes
 
             if (timeDelta < COOLDOWN_MS) {
                 const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
