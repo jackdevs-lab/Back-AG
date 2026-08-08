@@ -37,14 +37,41 @@ router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
     });
 
     const realmId = (req.query.realmId || req.query.realmid) as string;
-    if (!realmId) {
+
+    if (realmId) {
+        try {
+            // 2. Immediate Server-Side Sweep: Purge orphans and the connection
+            const tables = [
+                prisma.ruleFinding,
+                prisma.account,
+                prisma.transaction,
+                prisma.customer,
+                prisma.vendor,
+                prisma.bankTransaction,
+                prisma.reconciliation,
+                prisma.ruleConfig
+            ];
+
+            await prisma.$transaction([
+                ...tables.map(table => (table as any).deleteMany({ where: { realmId } })),
+                prisma.qbConnection.deleteMany({ where: { realmId } })
+            ]);
+
+            logger.info(`Cleaned up external disconnect and purged orphaned records for realmId: ${realmId}`);
+        } catch (error) {
+            logger.error(`Failed database cleanup during redirect for realmId: ${realmId}`, error);
+        }
+    } else {
         logger.warn('Disconnect callback hit, but no realmId was found in the URL query parameters.');
     }
 
-    // 2. Safely redirect the user's browser to the frontend landing page.
-    // (Actual DB cleanup is handled securely in the background by POST /webhooks/intuit)
+    // 3. Redirect with the realmId safely attached
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    return res.redirect(`${frontendUrl}/disconnect`);
+    const redirectUrl = realmId
+        ? `${frontendUrl}/disconnect?realmId=${encodeURIComponent(realmId)}`
+        : `${frontendUrl}/disconnect`;
+
+    return res.redirect(redirectUrl);
 });
 // Protected routes
 router.use(authMiddleware);

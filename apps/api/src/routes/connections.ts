@@ -172,38 +172,9 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
 });
 // Inside apps/api/src/routes/connections.ts (GET /:id/status route)
 
-router.get('/:id/status', authMiddleware, async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const { tenantId } = req;
 
-    const connection = await prisma.qbConnection.findUnique({ where: { id } });
-    if (!connection || connection.tenantId !== tenantId) {
-        return res.status(404).json({ error: 'Connection not found' });
-    }
 
-    try {
-        // Quick health check against Intuit
-        const qbCheck = await fetch(
-            `https://sandbox-quickbooks.api.intuit.com/v3/company/${connection.realmId}/companyinfo/${connection.realmId}`,
-            {
-                headers: { Authorization: `Bearer ${connection.accessToken}`, Accept: 'application/json' }
-            }
-        );
-
-        if (qbCheck.status === 401) {
-            // Self-heal: Automatically purge the dead connection on the spot
-            await prisma.qbConnection.delete({ where: { id: connection.id } });
-            logger.info(`Lazy cleanup purged revoked connection ID: ${id}`);
-            return res.status(410).json({ error: 'Connection expired or revoked', disconnected: true });
-        }
-
-        return res.json({ status: 'ACTIVE', connectionStatus: connection.syncStatus });
-    } catch (error) {
-        logger.error('Error validating connection status', error);
-        return res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
+// DELETE connection
 // DELETE connection
 // DELETE connection
 // DELETE connection
@@ -217,7 +188,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             select: {
                 id: true,
                 tenantId: true,
-                refreshToken: true
+                refreshToken: true,
+                realmId: true // Added realmId for the sweep
             }
         });
 
@@ -232,7 +204,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
 
             if (rawEncryptedToken && clientId && clientSecret) {
                 // 1. DECRYPT the stored refresh token first
-                // 1. DECRYPT the stored refresh token first
                 const decryptedRefreshToken = decrypt(rawEncryptedToken).trim();
 
                 const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -243,7 +214,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/json', // Intuit requires JSON for revocation
+                        'Content-Type': 'application/json',
                         'Authorization': `Basic ${authHeader}`
                     },
                     body: JSON.stringify({
@@ -267,14 +238,26 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             console.warn('Error during Intuit token decryption or revocation:', revokeError);
         }
 
-        // 3. Delete local connection record
-        await prisma.qbConnection.delete({
-            where: { id }
-        });
+        // 3. Programmatic Sweep: Delete local connection record and all associated financial orphans
+        const tables = [
+            prisma.ruleFinding,
+            prisma.account,
+            prisma.transaction,
+            prisma.customer,
+            prisma.vendor,
+            prisma.bankTransaction,
+            prisma.reconciliation,
+            prisma.ruleConfig
+        ];
+
+        await prisma.$transaction([
+            ...tables.map(table => (table as any).deleteMany({ where: { realmId: connection.realmId } })),
+            prisma.qbConnection.delete({ where: { id } })
+        ]);
 
         res.json({
             success: true,
-            message: 'Connection deleted'
+            message: 'Connection and associated data deleted'
         });
     } catch (error) {
         next(error);
