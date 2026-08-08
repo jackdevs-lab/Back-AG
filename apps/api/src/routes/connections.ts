@@ -232,25 +232,23 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
 
             if (rawEncryptedToken && clientId && clientSecret) {
                 // 1. DECRYPT the stored refresh token first
+                // 1. DECRYPT the stored refresh token first
                 const decryptedRefreshToken = decrypt(rawEncryptedToken).trim();
 
                 const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
                 const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
 
-                // 2. Pass the raw decrypted token to Intuit
-                const formData = new URLSearchParams({
-                    token: decryptedRefreshToken,
-                    token_type_hint: 'refresh_token'
-                });
-
+                // 2. Pass the raw decrypted token to Intuit as JSON
                 const revokeResponse = await fetch(revokeUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
-                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Content-Type': 'application/json', // Intuit requires JSON for revocation
                         'Authorization': `Basic ${authHeader}`
                     },
-                    body: formData.toString()
+                    body: JSON.stringify({
+                        token: decryptedRefreshToken
+                    })
                 });
 
                 if (!revokeResponse.ok) {
