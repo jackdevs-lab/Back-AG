@@ -36,24 +36,32 @@ router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
         rawQuery: req.query
     });
 
-    const realmId = (req.query.realmId || req.query.realmid) as string;
+    // Support all potential parameter casing formats from Intuit
+    const realmId = (req.query.realmId || req.query.realmid || req.query.realm_id) as string;
 
     if (realmId) {
         try {
-            // 2. Immediate Server-Side Sweep: Purge orphans and the connection
-            const tables = [
+            // 2. Ordered Sweep: Delete child records FIRST, then parent records
+            const childTables = [
                 prisma.ruleFinding,
-                prisma.account,
                 prisma.transaction,
-                prisma.customer,
-                prisma.vendor,
                 prisma.bankTransaction,
                 prisma.reconciliation,
                 prisma.ruleConfig
             ];
 
+            const parentTables = [
+                prisma.account,
+                prisma.customer,
+                prisma.vendor
+            ];
+
             await prisma.$transaction([
-                ...tables.map(table => (table as any).deleteMany({ where: { realmId } })),
+                // Delete child dependent records first
+                ...childTables.map(table => (table as any).deleteMany({ where: { realmId } })),
+                // Delete parent entities
+                ...parentTables.map(table => (table as any).deleteMany({ where: { realmId } })),
+                // Delete main connection record last
                 prisma.qbConnection.deleteMany({ where: { realmId } })
             ]);
 
@@ -66,13 +74,14 @@ router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
     }
 
     // 3. Redirect with the realmId safely attached
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://auditorgen.com';
     const redirectUrl = realmId
         ? `${frontendUrl}/disconnect?realmId=${encodeURIComponent(realmId)}`
         : `${frontendUrl}/disconnect`;
 
     return res.redirect(redirectUrl);
 });
+
 // Protected routes
 router.use(authMiddleware);
 
@@ -95,11 +104,9 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
         const { code, realmId, state } = req.body;
         if (!code || !realmId || !state) throw new AppError('Invalid callback data', 400);
 
-        // 1. Decode state FIRST
         const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
         const stateTenantId = stateData.tenantId;
 
-        // 🔒 SECURITY CHECK: Ensure the state tenantId matches the authenticated user's tenantId
         if (stateTenantId !== req.tenantId) {
             logger.warn('OAuth Callback: Tenant ID mismatch between state and authenticated user', {
                 stateTenantId,
@@ -110,10 +117,8 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
 
         const tenantId = stateTenantId;
 
-        // 2. Exchange code for token
         const tokenData = await oauthService.exchangeCodeForToken(code);
 
-        // 3. Safety check: Ensure tenant exists before saving connection
         let tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
         if (!tenant) {
@@ -152,10 +157,8 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
             }
         }
 
-        // 4. Save connection
         await oauthService.saveConnection(tenantId, realmId, tokenData);
 
-        // 🔒 AUTO-ACTIVATE BYPASS TENANTS: Ensure reviewer connection is marked ACTIVE
         const isBypassedTenant = tenant?.isBypassed || tenant?.email === 'intuit-review@auditorgen.com';
         if (isBypassedTenant) {
             await prisma.qbConnection.updateMany({
@@ -176,6 +179,7 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
         next(error);
     }
 });
+
 router.use('/connections', connectionsRouter);
 router.use('/diagnostics', diagnosticsRouter);
 router.use('/reports', reportsRouter);
