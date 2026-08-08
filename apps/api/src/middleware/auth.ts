@@ -13,7 +13,6 @@ export interface AuthRequest extends Request {
     userId?: string;
 }
 
-
 export const authMiddleware = async (
     req: AuthRequest,
     res: Response,
@@ -40,6 +39,11 @@ export const authMiddleware = async (
         }
 
         const token = authHeader.split(' ')[1];
+
+        // Guard against dummy stringified tokens ("null", "undefined") before JWT decoding
+        if (!token || token === 'null' || token === 'undefined') {
+            return next(new AppError('Invalid token format', 401));
+        }
 
         try {
             // Verify the token using Clerk's secret key
