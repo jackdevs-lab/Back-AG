@@ -19,7 +19,7 @@ export function formatReport(
             id: f.id,
             label: f.label,
             details: `Vendor has a net negative AP balance. This often indicates overpayment, unapplied credits, or missing bills. Fingerprint: ${f.metadata.fingerprint.substring(0, 8)}`,
-            deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${ctx.realmId}&txnId=${f.id}`
+            deepLink: `https://app.qbo.intuit.com/app/bill?realmId=${ctx.realmId}&txnId=${f.id}`
         })),
         recommendation: 'Investigate negative balances immediately. Check for duplicate payments or missing invoices. Apply vendor credits where applicable.',
         metadata: {

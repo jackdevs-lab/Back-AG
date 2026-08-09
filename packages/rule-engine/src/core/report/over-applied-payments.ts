@@ -30,7 +30,7 @@ export async function formatReport(
             id: f.metadata.qbId,
             label: `${customerName} - Payment ${f.metadata.qbId}`,
             details: `Payment for $${f.amount.toFixed(2)} has $${f.metadata.totalApplied.toFixed(2)} applied to invoices (Variance: $${f.metadata.variance.toFixed(2)}).`,
-            deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+            deepLink: `https://app.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
         };
     });
 

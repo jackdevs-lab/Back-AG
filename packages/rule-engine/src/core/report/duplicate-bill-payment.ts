@@ -9,7 +9,7 @@ export function formatReport(realmId: string, reportData: any, unscannable: any[
             : Number(f.amount).toFixed(2);
 
         const deepLinks = f.entities.map(
-            (entity: any) => `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${entity.qbId}`
+            (entity: any) => `https://app.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${entity.qbId}`
         );
 
         return {

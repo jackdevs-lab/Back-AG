@@ -30,7 +30,7 @@ export class DuplicateVendorsRule implements IRule {
             id: group.map((v: any) => v.qbId).join(','),
             label: `"${group[0].name}" — ${group.length} records`,
             details: `Found ${group.length} vendors with the same name. IDs: ${group.map((v: any) => v.qbId).join(', ')}.`,
-            deepLink: group.map((v: any) => `https://sandbox.qbo.intuit.com/app/vendordetail?realmId=${ctx.realmId}&nameId=${v.qbId}`)
+            deepLink: group.map((v: any) => `https://app.qbo.intuit.com/app/vendordetail?realmId=${ctx.realmId}&nameId=${v.qbId}`)
         }));
 
         const report = formatStandardReport({

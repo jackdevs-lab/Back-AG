@@ -15,7 +15,7 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         id: f.metadata.clusterIds.join(','),
         label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - ${f.amount.toFixed(2)}`,
         details: `Found ${f.entities.length} payments on ${f.date.toISOString().split('T')[0]} with the same amount. Affects IDs: ${f.metadata.clusterIds.join(', ')}.`,
-        deepLink: f.metadata.clusterIds.map((id: string) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${id}`)
+        deepLink: f.metadata.clusterIds.map((id: string) => `https://app.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${id}`)
     }));
 
     return formatStandardReport({

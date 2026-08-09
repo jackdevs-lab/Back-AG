@@ -100,7 +100,7 @@ export class OrphanedDepositLineRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Deposit ${f.metadata.qbId} — $${f.amount.toFixed(2)}`,
                     details: `Deposit on ${f.date.toISOString().split('T')[0]} references one or more source payments that no longer exist.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://app.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Orphaned Deposit Lines',

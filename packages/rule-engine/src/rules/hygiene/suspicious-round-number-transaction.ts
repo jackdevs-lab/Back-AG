@@ -79,7 +79,7 @@ export class SuspiciousRoundNumberTransactionRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.txnType} ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `${f.metadata.txnType} on ${f.date.toISOString().split('T')[0]} has a suspiciously round amount of $${f.amount.toFixed(2)}.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
+                    deepLink: `https://app.qbo.intuit.com/app/reportv2?reportName=GeneralLedger&realmId=${ctx.realmId}`
                 }));
                 return formatStandardReport({
                     title: 'Suspicious Round-Number Transactions',

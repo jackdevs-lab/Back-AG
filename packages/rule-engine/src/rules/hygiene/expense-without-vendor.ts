@@ -73,7 +73,7 @@ export class ExpenseWithoutVendorRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.txnType} ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `${f.metadata.txnType} on ${f.date.toISOString().split('T')[0]} for $${f.amount.toFixed(2)} has no vendor assigned.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/expense?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://app.qbo.intuit.com/app/expense?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Expenses Without Vendors',

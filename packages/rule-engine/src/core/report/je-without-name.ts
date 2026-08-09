@@ -14,7 +14,7 @@ export function formatReport(
             id: f.qbId,
             label: `JE ${f.qbId} - ${f.missingLines.length} line(s) missing name`,
             details: `Journal Entry on ${f.date ? f.date.toLocaleDateString() : 'N/A'} has lines directly coded to accounts without an associated Customer, Vendor, or Employee name.`,
-            deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
+            deepLink: `https://app.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
         })),
         recommendation: 'Good accounting practice requires identifying the source entity for every transaction line, especially for Balance Sheet accounts. Review these entries in QuickBooks and assign the correct name to each line to maintain clear audit trails and accurate sub-ledger reporting.'
     });

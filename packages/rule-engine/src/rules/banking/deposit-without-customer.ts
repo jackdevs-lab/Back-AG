@@ -74,7 +74,7 @@ export class DepositWithoutCustomerRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Deposit ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `Deposit on ${f.date.toISOString().split('T')[0]} for $${f.amount.toFixed(2)} has no customer reference on any line.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://app.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Deposits Without Customer Reference',

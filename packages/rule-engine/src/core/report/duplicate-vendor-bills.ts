@@ -16,7 +16,7 @@ export function formatReport(
                 label: `Vendor: ${f.metadata.vendorId} - Amount: ${f.amount} ${f.currency} - Doc: ${f.metadata.docNumber}`,
                 details: `${f.entities.length} duplicate bills found with IDs: ${sortedBillIds.join(', ')}`,
                 deepLink: f.entities.map((entity: any) =>
-                    `https://sandbox.qbo.intuit.com/app/bill?txnId=${entity.qbId}&realmId=${realmId}`
+                    `https://app.qbo.intuit.com/app/bill?txnId=${entity.qbId}&realmId=${realmId}`
                 )
             };
         }),

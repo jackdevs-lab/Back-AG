@@ -115,7 +115,7 @@ export class InvoiceLineDirectToAccountRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - Invoice ${f.metadata.qbId}`,
                     details: `Invoice has ${f.metadata.directLineCount} line(s) coded directly to an account instead of an item/product. Total invoice amount is $${f.amount.toFixed(2)}.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://app.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
 
                 const reportString = formatStandardReport({
