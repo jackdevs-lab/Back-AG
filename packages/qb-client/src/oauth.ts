@@ -7,39 +7,50 @@ export interface QbTokenResponse {
     refresh_token: string;
     expires_in: number;
     x_refresh_token_expires_in: number;
-    realmId: string;
+    realmId?: string;
 }
 
 export class OAuthService {
-    private readonly clientId: string;
-    private readonly clientSecret: string;
-    private readonly redirectUri: string;
-    private readonly environment: 'sandbox' | 'production';
+    // In-flight refresh promise cache to prevent concurrent refresh race conditions
+    private refreshPromises: Map<string, Promise<string>> = new Map();
 
-    constructor() {
-        this.clientId = process.env.QB_CLIENT_ID!;
-        this.clientSecret = process.env.QB_CLIENT_SECRET!;
-        this.redirectUri = process.env.QB_REDIRECT_URI!;
-        this.environment = (process.env.QB_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox';
+    private get clientId(): string {
+        const id = process.env.QB_CLIENT_ID;
+        if (!id) throw new Error('QB_CLIENT_ID environment variable is missing');
+        return id;
+    }
+
+    private get clientSecret(): string {
+        const secret = process.env.QB_CLIENT_SECRET;
+        if (!secret) throw new Error('QB_CLIENT_SECRET environment variable is missing');
+        return secret;
+    }
+
+    private get redirectUri(): string {
+        const uri = process.env.QB_REDIRECT_URI;
+        if (!uri) throw new Error('QB_REDIRECT_URI environment variable is missing');
+        return uri;
+    }
+
+    private get isProduction(): boolean {
+        return process.env.QB_ENVIRONMENT?.toLowerCase() === 'production';
     }
 
     getAuthUrl(state: string): string {
-        const baseUrl = this.environment === 'sandbox'
-            ? 'https://appcenter.intuit.com/connect/oauth2'
-            : 'https://appcenter.intuit.com/connect/oauth2';
+        const baseUrl = 'https://appcenter.intuit.com/connect/oauth2';
 
         const params = new URLSearchParams({
             client_id: this.clientId,
             redirect_uri: this.redirectUri,
             response_type: 'code',
-            scope: 'com.intuit.quickbooks.accounting',
+            scope: 'com.intuit.quickbooks.accounting openid profile email',
             state: state
         });
 
         return `${baseUrl}?${params.toString()}`;
     }
 
-    async exchangeCodeForToken(code: string): Promise<QbTokenResponse> {
+    async exchangeCodeForToken(code: string, realmIdFromCallback?: string): Promise<QbTokenResponse> {
         const response = await axios.post(
             'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
             new URLSearchParams({
@@ -57,7 +68,7 @@ export class OAuthService {
 
         return {
             ...response.data,
-            realmId: response.data.realmId || response.data.realmId
+            realmId: realmIdFromCallback || response.data.realmId
         };
     }
 
@@ -84,11 +95,9 @@ export class OAuthService {
         const encryptedRefreshToken = encrypt(tokenData.refresh_token);
         const tokenExpiry = new Date(Date.now() + (tokenData.expires_in * 1000));
 
-        // 1. Check if this is the Intuit Demo Account
         const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
-
-        // 2. If it is the demo, automatically grant it ACTIVE status
-        const defaultSubscriptionStatus = isDemoSandbox ? 'ACTIVE' : 'INACTIVE';
+        // Default new connections to ACTIVE for immediate trial syncs
+        const defaultSubscriptionStatus = 'ACTIVE';
 
         logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
 
@@ -102,8 +111,6 @@ export class OAuthService {
                     refreshToken: encryptedRefreshToken,
                     tokenExpiry,
                     isActive: true,
-                    // If it's the demo account, forcefully keep it ACTIVE just in case
-                    ...(isDemoSandbox && { subscriptionStatus: 'ACTIVE' })
                 },
                 create: {
                     tenantId,
@@ -113,7 +120,7 @@ export class OAuthService {
                     tokenExpiry,
                     isActive: true,
                     syncStatus: 'IDLE',
-                    subscriptionStatus: defaultSubscriptionStatus // Assigns 'ACTIVE' on first connect
+                    subscriptionStatus: defaultSubscriptionStatus
                 }
             });
         } catch (error) {
@@ -132,8 +139,8 @@ export class OAuthService {
         const connection = await prisma.qbConnection.findUnique({
             where: {
                 tenantId_realmId: {
-                    tenantId: tenantId,
-                    realmId: realmId
+                    tenantId,
+                    realmId
                 }
             }
         });
@@ -153,26 +160,33 @@ export class OAuthService {
         const connection = await this.getConnection(realmId, tenantId);
         const now = new Date();
         const expiry = new Date(connection.tokenExpiry);
-        const threshold = new Date(now.getTime() + 5 * 60 * 1000);
+        const threshold = new Date(now.getTime() + 5 * 60 * 1000); // 5 minute buffer
 
-        logger.info('Token refresh check', {
-            realmId,
-            expiry: expiry.toISOString(),
-            now: now.toISOString(),
-            isExpired: expiry < threshold
-        });
-
-        // Refresh if token expires within 5 minutes
-        if (expiry < threshold) {
-            logger.info('Refreshing QuickBooks token', { realmId });
-
-            const newTokenData = await this.refreshAccessToken(connection.refreshToken);
-            await this.saveConnection(connection.tenantId, realmId, newTokenData);
-
-            return newTokenData.access_token;
+        if (expiry >= threshold) {
+            return connection.accessToken;
         }
 
-        return connection.accessToken;
+        // Lock key per realm to eliminate parallel refresh race conditions
+        const lockKey = `${tenantId}:${realmId}`;
+
+        if (this.refreshPromises.has(lockKey)) {
+            logger.info('Awaiting existing in-flight token refresh...', { realmId });
+            return await this.refreshPromises.get(lockKey)!;
+        }
+
+        const refreshPromise = (async () => {
+            try {
+                logger.info('Refreshing QuickBooks token', { realmId });
+                const newTokenData = await this.refreshAccessToken(connection.refreshToken);
+                await this.saveConnection(tenantId, realmId, newTokenData);
+                return newTokenData.access_token;
+            } finally {
+                this.refreshPromises.delete(lockKey);
+            }
+        })();
+
+        this.refreshPromises.set(lockKey, refreshPromise);
+        return await refreshPromise;
     }
 }
 

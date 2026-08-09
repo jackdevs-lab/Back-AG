@@ -22,13 +22,23 @@ export class QbApiClient {
         this.realmId = realmId;
         this.token = token;
 
+        // Dynamically resolve base URL based on QB_ENVIRONMENT
+        const isProduction = process.env.QB_ENVIRONMENT?.toLowerCase() === 'production';
+        const baseURL = isProduction
+            ? 'https://quickbooks.api.intuit.com/v3'
+            : 'https://sandbox-quickbooks.api.intuit.com/v3';
+
         this.client = axios.create({
-            baseURL: 'https://sandbox-quickbooks.api.intuit.com/v3',
+            baseURL,
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Intuit-RealmId': realmId,
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
+            },
+            // Pin minorversion for standard API behavior across environments
+            params: {
+                minorversion: 65
             }
         });
 
