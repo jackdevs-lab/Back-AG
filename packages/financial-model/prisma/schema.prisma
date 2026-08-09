@@ -19,7 +19,7 @@ model Tenant {
   id          String          @id @default(uuid())
   name        String
   email       String          @unique
-  isBypassed    Boolean         @default(false)
+  isBypassed  Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   diagnostics DiagnosticRun[]
@@ -41,11 +41,13 @@ model User {
   @@unique([tenantId, email])
   @@index([tenantId])
 }
+
 enum SyncStatus {
   IDLE
   SYNCING
   ERROR
 }
+
 model QbConnection {
   id                       String             @id @default(uuid())
   tenantId                 String
@@ -56,7 +58,7 @@ model QbConnection {
   refreshToken             String
   tokenExpiry              DateTime
   lastSyncAt               DateTime?
-  syncStatus               SyncStatus             @default(IDLE)
+  syncStatus               SyncStatus         @default(IDLE)
   isActive                 Boolean            @default(true)
   subscriptionStatus       SubscriptionStatus @default(INACTIVE)
   paystackCustCode         String?
@@ -80,13 +82,13 @@ model QbConnection {
 }
 
 model RuleFinding {
-  id           String   @id @default(uuid())
-  realmId      String
-  ruleId       String
-  qbId         String
-  syncToken    Int      @default(0)
-  findingData  Json
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  realmId     String
+  ruleId      String
+  qbId        String
+  syncToken   Int      @default(0)
+  findingData Json
+  createdAt   DateTime @default(now())
 
   @@unique([realmId, ruleId, qbId, syncToken])
   @@index([realmId, ruleId])
@@ -94,17 +96,18 @@ model RuleFinding {
 }
 
 model Account {
-  id        String   @id @default(uuid())
-  realmId   String
-  qbId      String
-  name      String
-  type      String
-  subType   String?
-  currency  String   @default("USD")
-  active    Boolean  @default(true)
-  balance   Decimal  @default(0)
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  realmId      String
+  qbId         String
+  name         String
+  type         String
+  subType      String?
+  currency     String   @default("USD")
+  active       Boolean  @default(true)
+  balance      Decimal  @default(0)
+  lastSyncedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
 
   @@unique([realmId, qbId])
   @@index([realmId])
@@ -125,6 +128,7 @@ model Transaction {
   vendorId     String?
   rawData      Json
   syncToken    Int      @default(0)
+  lastSyncedAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
@@ -137,16 +141,17 @@ model Transaction {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  realmId   String
-  qbId      String
-  name      String
-  email     String?
-  phone     String?
-  active    Boolean  @default(true)
-  balance   Decimal  @default(0)
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  realmId      String
+  qbId         String
+  name         String
+  email        String?
+  phone        String?
+  active       Boolean  @default(true)
+  balance      Decimal  @default(0)
+  lastSyncedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
 
   @@unique([realmId, qbId])
   @@index([realmId])
@@ -154,14 +159,15 @@ model Customer {
 }
 
 model Vendor {
-  id        String   @id @default(uuid())
-  realmId   String
-  qbId      String
-  name      String
-  email     String?
-  active    Boolean  @default(true)
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  realmId      String
+  qbId         String
+  name         String
+  email        String?
+  active       Boolean  @default(true)
+  lastSyncedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
 
   @@unique([realmId, qbId])
   @@index([realmId])
@@ -243,18 +249,19 @@ model SyncLog {
 }
 
 model BankTransaction {
-  id          String   @id @default(uuid())
-  realmId     String
-  qbId        String
-  accountId   String
-  date        DateTime
-  amount      Decimal
-  description String?
-  payee       String?
-  status      String
-  rawData     Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  realmId      String
+  qbId         String
+  accountId    String
+  date         DateTime
+  amount       Decimal
+  description  String?
+  payee        String?
+  status       String
+  rawData      Json
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([realmId, qbId])
   @@index([realmId])
@@ -273,6 +280,7 @@ model Reconciliation {
   closingBalance Decimal
   status         String
   rawData        Json
+  lastSyncedAt   DateTime  @default(now())
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

@@ -1,19 +1,7 @@
 import { createLogger } from '@qb-health/utils';
-import { RealmId, QbId } from '@qb-health/financial-model';
+import { RealmId } from '@qb-health/financial-model';
 import { chunk } from './sync-engine';
 import { BatchUpsertOptions } from './sync-types';
-
-export interface PrismaUpsertDelegate<T> {
-    upsert(args: {
-        where: { realmId_qbId: { realmId: RealmId; qbId: QbId } };
-        update: Partial<T>;
-        create: T;
-    }): Promise<T>;
-    findUnique(args: {
-        where: { realmId_qbId: { realmId: RealmId; qbId: QbId } };
-        select: { updatedAt: boolean };
-    }): Promise<{ updatedAt: Date | string } | null>;
-}
 
 export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
     chunkSize?: number;
@@ -23,71 +11,88 @@ export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
 export class BatchUpsertService {
     private logger = createLogger({ name: 'BatchUpsertService' });
 
-    async batchUpsert<T extends { qbId: QbId; updatedAt?: Date | string }>(
+    async batchUpsert<T extends Record<string, any>>(
+        prisma: any,
         records: T[],
-        model: PrismaUpsertDelegate<T>,
-        entityType: string,
+        tableName: string,
         realmId: RealmId,
         options: ExtendedBatchUpsertOptions = {}
-    ): Promise<string[]> {
-        const { chunkSize = 50, concurrencyLimit = 5 } = options;
-        const successfulIds: string[] = []; // Changed to store IDs
+    ): Promise<number> {
+        const { chunkSize = 500, concurrencyLimit = 5 } = options;
+        let successfulCount = 0;
+
+        if (!records.length) {
+            return successfulCount;
+        }
 
         const batches = chunk(records, chunkSize);
         const executing = new Set<Promise<void>>();
 
+        const sampleRecord = records[0];
+        const columns = Object.keys(sampleRecord).filter((k) => k !== 'realmId');
+        columns.unshift('realmId');
+
+        const quotedColumns = columns.map((c) => `"${c}"`).join(', ');
+
+        const updateSet = columns
+            .filter((c) => c !== 'realmId' && c !== 'qbId')
+            .map((c) => `"${c}" = EXCLUDED."${c}"`)
+            .join(', ');
+
         for (const batch of batches) {
             const batchPromise = (async () => {
-                const results = await Promise.allSettled(
-                    batch.map(async (record) => {
-                        const existing = await model.findUnique({
-                            where: { realmId_qbId: { realmId, qbId: record.qbId } },
-                            select: { updatedAt: true }
-                        });
+                try {
+                    const values: any[] = [];
+                    const valueStrings: string[] = [];
+                    let paramIndex = 1;
 
-                        if (existing && existing.updatedAt && record.updatedAt) {
-                            const existingDate = new Date(existing.updatedAt);
-                            const incomingDate = new Date(record.updatedAt);
-
-                            if (existingDate >= incomingDate) {
-                                return record;
+                    for (const record of batch) {
+                        const recordValues: string[] = [];
+                        for (const col of columns) {
+                            let cast = '';
+                            if (col === 'realmId') {
+                                values.push(realmId);
+                            } else {
+                                const val = record[col];
+                                if (val instanceof Date) {
+                                    values.push(val);
+                                } else if (typeof val === 'object' && val !== null) {
+                                    values.push(JSON.stringify(val));
+                                    cast = '::jsonb'; // Explicit cast for PostgreSQL JSON mapping
+                                } else {
+                                    values.push(val ?? null);
+                                }
                             }
+                            recordValues.push(`$${paramIndex++}${cast}`);
                         }
-
-                        return model.upsert({
-                            where: { realmId_qbId: { realmId, qbId: record.qbId } },
-                            update: record,
-                            create: record
-                        });
-                    })
-                );
-
-                const batchSuccessIds: string[] = [];
-                results.forEach((res, idx) => {
-                    if (res.status === 'fulfilled') {
-                        batchSuccessIds.push(String(batch[idx].qbId)); // Capture stringified ID
-                    } else {
-                        const failedQbId = batch[idx].qbId;
-                        const errorObj = res.reason instanceof Error
-                            ? res.reason
-                            : new Error(String(res.reason));
-                        this.logger.error(
-                            `Upsert failed for ${entityType} ID: ${failedQbId}`,
-                            errorObj,
-                            {
-                                entityType,
-                                realmId,
-                                qbId: failedQbId
-                            }
-                        );
+                        valueStrings.push(`(${recordValues.join(', ')})`);
                     }
-                });
 
-                return batchSuccessIds;
+                    let query = `
+                        INSERT INTO "${tableName}" (${quotedColumns})
+                        VALUES ${valueStrings.join(', ')}
+                        ON CONFLICT ("realmId", "qbId")
+                        DO UPDATE SET ${updateSet}
+                    `;
+
+                    if (columns.includes('updatedAt')) {
+                        query += ` WHERE "${tableName}"."updatedAt" < EXCLUDED."updatedAt" OR "${tableName}"."updatedAt" IS NULL`;
+                    }
+
+                    await prisma.$executeRawUnsafe(query, ...values);
+                    successfulCount += batch.length;
+
+                } catch (error) {
+                    const errorObj = error instanceof Error ? error : new Error(String(error));
+                    this.logger.error(`Bulk upsert failed for table ${tableName}`, errorObj, {
+                        tableName,
+                        realmId,
+                        batchSize: batch.length,
+                    });
+                }
             })();
 
-            const p = batchPromise.then((ids) => {
-                successfulIds.push(...ids);
+            const p = batchPromise.then(() => {
                 executing.delete(p);
             });
 
@@ -97,8 +102,8 @@ export class BatchUpsertService {
                 await Promise.race(executing);
             }
         }
-        await Promise.all(executing);
 
-        return successfulIds;
+        await Promise.all(executing);
+        return successfulCount;
     }
 }

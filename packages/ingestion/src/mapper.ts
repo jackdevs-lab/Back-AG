@@ -9,12 +9,11 @@ export type CompoundId = Brand<string, 'CompoundId'>;
 export type RecordStatus = Brand<'Open' | 'Completed' | 'Void' | 'Paid' | 'Unmatched', 'RecordStatus'>;
 
 export class Mapper {
-
     private generateId(realmId: RealmId, qbId: QbId | string): CompoundId {
         return `${realmId}-${qbId}` as CompoundId;
     }
 
-    mapAccount(qbAccount: any, realmId: RealmId): Prisma.AccountCreateInput {
+    mapAccount(qbAccount: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.AccountCreateInput {
         return {
             id: this.generateId(realmId, qbAccount.Id),
             realmId,
@@ -26,11 +25,12 @@ export class Mapper {
             active: qbAccount.Active ?? true,
             balance: qbAccount.CurrentBalance || 0,
             updatedAt: new Date(qbAccount.MetaData?.LastUpdatedTime || Date.now()),
-            createdAt: new Date(qbAccount.MetaData?.CreateTime || Date.now())
+            createdAt: new Date(qbAccount.MetaData?.CreateTime || Date.now()),
+            lastSyncedAt: syncSessionStartTime
         };
     }
 
-    mapCustomer(qbCustomer: any, realmId: RealmId): Prisma.CustomerCreateInput {
+    mapCustomer(qbCustomer: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.CustomerCreateInput {
         return {
             id: this.generateId(realmId, qbCustomer.Id),
             realmId,
@@ -41,11 +41,12 @@ export class Mapper {
             active: qbCustomer.Active ?? true,
             balance: qbCustomer.Balance || 0,
             updatedAt: new Date(qbCustomer.MetaData?.LastUpdatedTime || Date.now()),
-            createdAt: new Date(qbCustomer.MetaData?.CreateTime || Date.now())
+            createdAt: new Date(qbCustomer.MetaData?.CreateTime || Date.now()),
+            lastSyncedAt: syncSessionStartTime
         };
     }
 
-    mapVendor(qbVendor: any, realmId: RealmId): Prisma.VendorCreateInput {
+    mapVendor(qbVendor: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.VendorCreateInput {
         return {
             id: this.generateId(realmId, qbVendor.Id),
             realmId,
@@ -54,11 +55,12 @@ export class Mapper {
             email: qbVendor.PrimaryEmailAddr?.Address,
             active: qbVendor.Active ?? true,
             updatedAt: new Date(qbVendor.MetaData?.LastUpdatedTime || Date.now()),
-            createdAt: new Date(qbVendor.MetaData?.CreateTime || Date.now())
+            createdAt: new Date(qbVendor.MetaData?.CreateTime || Date.now()),
+            lastSyncedAt: syncSessionStartTime
         };
     }
 
-    mapTransaction(qbTransaction: any, realmId: RealmId, type: string): Prisma.TransactionCreateInput {
+    mapTransaction(qbTransaction: any, realmId: RealmId, type: string, syncSessionStartTime: Date): Prisma.TransactionCreateInput {
         const lines = qbTransaction.Line || [];
         let categoryId = qbTransaction.DepartmentRef?.value;
         let isReconciled = false;
@@ -124,11 +126,12 @@ export class Mapper {
             rawData: qbTransaction as Prisma.InputJsonValue,
             syncToken: parseInt(qbTransaction.SyncToken) || 0,
             updatedAt: new Date(qbTransaction.MetaData?.LastUpdatedTime || Date.now()),
-            createdAt: new Date(qbTransaction.MetaData?.CreateTime || Date.now())
+            createdAt: new Date(qbTransaction.MetaData?.CreateTime || Date.now()),
+            lastSyncedAt: syncSessionStartTime
         };
     }
 
-    mapToUnifiedBankTransaction(qbRecord: any, entityType: string, realmId: RealmId): Prisma.BankTransactionCreateInput {
+    mapToUnifiedBankTransaction(qbRecord: any, entityType: string, realmId: RealmId, syncSessionStartTime: Date): Prisma.BankTransactionCreateInput {
         let accountId: string | undefined;
         let amount = qbRecord.Amount || qbRecord.TotalAmt || 0;
         let description = qbRecord.PrivateNote || qbRecord.Name || 'Bank Activity';
@@ -176,8 +179,8 @@ export class Mapper {
             status: (qbRecord.Status || 'Unmatched') as RecordStatus,
             rawData: qbRecord as Prisma.InputJsonValue,
             updatedAt: new Date(qbRecord.MetaData?.LastUpdatedTime || Date.now()),
-            createdAt: new Date(qbRecord.MetaData?.CreateTime || Date.now())
+            createdAt: new Date(qbRecord.MetaData?.CreateTime || Date.now()),
+            lastSyncedAt: syncSessionStartTime
         };
-
     }
 }
