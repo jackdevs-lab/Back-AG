@@ -1,5 +1,5 @@
 import { prisma, RealmId, BrandedRepository, PrismaBrandedRepository, BrandedSyncStatus } from '@qb-health/financial-model';
-import { createQbClient } from '@qb-health/qb-client';
+import { createQbClient, QbApiClient } from '@qb-health/qb-client';
 import { createLogger } from '@qb-health/utils';
 import { Mapper } from './mapper';
 import { SyncResult, SupportedEntityType } from './sync-types';
@@ -39,6 +39,7 @@ export class SyncEngine {
 
         try {
             const qbClient = await createQbClient(this.realmId, this.tenantId);
+            const allResults: SyncResult[] = [];
 
             const baseEntities: Array<{ type: SupportedEntityType; sync: () => Promise<SyncResult> }> = [
                 { type: 'Account', sync: () => this.syncAccounts(qbClient, syncSessionStartTime) },
@@ -57,43 +58,46 @@ export class SyncEngine {
                 { type: 'BankActivity', sync: () => this.syncBankActivity(qbClient, syncSessionStartTime) }
             ];
 
-            const allResults: SyncResult[] = [];
-
+            // 1. Sync Base Entities
             this.logger.info('Syncing base entities sequentially...', { realmId: this.realmId });
+            let hasBaseFailure = false;
+
             for (const entity of baseEntities) {
                 try {
                     const result = await entity.sync();
                     allResults.push(result);
                 } catch (error) {
-                    this.logger.error(`Failed to sync base ${entity.type}`, error as Error, { entityType: entity.type, realmId: this.realmId });
+                    hasBaseFailure = true;
+                    this.logger.error(`Failed to sync base entity ${entity.type}`, error as Error, {
+                        entityType: entity.type,
+                        realmId: this.realmId
+                    });
                     allResults.push(this.createFailedResult(entity.type, (error as Error).message));
                 }
             }
 
+            // 2. Abort transactional sync if base entities failed to prevent FK errors and table purges
+            if (hasBaseFailure) {
+                throw new Error('Base entity synchronization failed. Aborting transactional entity sync to protect integrity.');
+            }
+
+            // 3. Sync Transactional Entities
             this.logger.info('Starting sequential sync for transactional entities...', { realmId: this.realmId });
             for (const entity of transactionalEntities) {
                 try {
                     const result = await entity.sync();
                     allResults.push(result);
                 } catch (error) {
-                    this.logger.error(`Failed to sync transactional ${entity.type}`, error as Error, { entityType: entity.type, realmId: this.realmId });
+                    this.logger.error(`Failed to sync transactional entity ${entity.type}`, error as Error, {
+                        entityType: entity.type,
+                        realmId: this.realmId
+                    });
                     allResults.push(this.createFailedResult(entity.type, (error as Error).message));
                 }
             }
 
-            this.logger.info('Executing Reconciliation Sweep...', { realmId: this.realmId });
-            const realmIdStr = String(this.realmId);
-
-            const sweepOperations = [
-                prisma.account.deleteMany({ where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } } }),
-                prisma.customer.deleteMany({ where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } } }),
-                prisma.vendor.deleteMany({ where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } } }),
-                prisma.transaction.deleteMany({ where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } } }),
-                prisma.bankTransaction.deleteMany({ where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } } })
-            ];
-
-            await prisma.$transaction(sweepOperations);
-            this.logger.info('Reconciliation Sweep completed successfully.', { realmId: this.realmId });
+            // 4. Safe Reconciliation Sweep (Purges ONLY entity types that succeeded in this session)
+            await this.executeSafeReconciliationSweep(allResults, syncSessionStartTime);
 
             await this.repo.updateQbConnectionStatus(this.tenantId, this.realmId, 'IDLE' as BrandedSyncStatus, new Date());
 
@@ -107,34 +111,92 @@ export class SyncEngine {
             return allResults;
 
         } catch (error) {
-            this.logger.error('Full sync failed during execution phase', error as Error, { realmId: this.realmId, tenantId: this.tenantId });
+            this.logger.error('Full sync failed during execution phase', error as Error, {
+                realmId: this.realmId,
+                tenantId: this.tenantId
+            });
             await this.repo.updateQbConnectionStatus(this.tenantId, this.realmId, 'ERROR' as BrandedSyncStatus, new Date());
             throw error;
         }
     }
 
-    private async fetchAndProcessPages(
-        qbClient: any,
+    /**
+     * Executes fetch and chunked DB batch upserts using QbApiClient query pagination
+     */
+    private async fetchAndProcessInBatches(
+        qbClient: QbApiClient,
         entity: string,
-        criteria: string = '',
-        processPage: (page: any[]) => Promise<void>
-    ): Promise<void> {
-        let startPosition = 1;
-        let hasMore = true;
-        const formattedCriteria = criteria ? `${criteria} ` : '';
+        whereClause: string,
+        processBatch: (batch: any[]) => Promise<number>
+    ): Promise<number> {
+        // Fetch all items across QBO pages cleanly via QbApiClient
+        const rawRecords = await qbClient.query<any>(entity, whereClause);
+        let totalProcessed = 0;
 
-        while (hasMore) {
-            const page = await qbClient.query(entity, `${formattedCriteria}STARTPOSITION ${startPosition} MAXRESULTS 500`);
-
-            if (page.length > 0) {
-                await processPage(page);
+        // Process records in DB transaction chunks of 500
+        const batches = chunk(rawRecords, 500);
+        for (const batch of batches) {
+            if (batch.length > 0) {
+                totalProcessed += await processBatch(batch);
             }
+        }
 
-            if (page.length < 500) {
-                hasMore = false;
-            } else {
-                startPosition += 500;
-            }
+        return totalProcessed;
+    }
+
+    /**
+     * Purges stale records ONLY for entity types that completed successfully in the current session.
+     */
+    private async executeSafeReconciliationSweep(results: SyncResult[], syncSessionStartTime: Date): Promise<void> {
+        const successfulTypes = new Set(
+            results.filter(r => r.status === 'SUCCESS').map(r => r.entityType)
+        );
+
+        this.logger.info('Executing Safe Reconciliation Sweep...', {
+            realmId: this.realmId,
+            successfulTypes: Array.from(successfulTypes)
+        });
+
+        const realmIdStr = String(this.realmId);
+        const sweepOperations: any[] = [];
+
+        if (successfulTypes.has('Account')) {
+            sweepOperations.push(prisma.account.deleteMany({
+                where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } }
+            }));
+        }
+        if (successfulTypes.has('Customer')) {
+            sweepOperations.push(prisma.customer.deleteMany({
+                where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } }
+            }));
+        }
+        if (successfulTypes.has('Vendor')) {
+            sweepOperations.push(prisma.vendor.deleteMany({
+                where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } }
+            }));
+        }
+
+        // Sweep transactions if all transactional types succeeded
+        const transactionTypes = ['Invoice', 'Bill', 'Payment', 'Purchase', 'JournalEntry', 'Deposit', 'Transfer'];
+        const allTransactionsSucceeded = transactionTypes.every(t => successfulTypes.has(t));
+
+        if (allTransactionsSucceeded) {
+            sweepOperations.push(prisma.transaction.deleteMany({
+                where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } }
+            }));
+        }
+
+        if (successfulTypes.has('BankActivity')) {
+            sweepOperations.push(prisma.bankTransaction.deleteMany({
+                where: { realmId: realmIdStr, lastSyncedAt: { lt: syncSessionStartTime } }
+            }));
+        }
+
+        if (sweepOperations.length > 0) {
+            await prisma.$transaction(sweepOperations);
+            this.logger.info('Safe Reconciliation Sweep completed successfully.', { realmId: this.realmId });
+        } else {
+            this.logger.warn('Reconciliation Sweep skipped: No entity types qualified for safe purging.', { realmId: this.realmId });
         }
     }
 
@@ -146,145 +208,116 @@ export class SyncEngine {
         return { realmId: this.realmId, entityType, recordsSynced: 0, durationMs: 0, status: 'FAILED', errorMessage };
     }
 
-    private async syncAccounts(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncAccounts(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Account', 'WHERE Active = true', async (page) => {
-            const mapped = page.map((a: any) => this.mapper.mapAccount(a, this.realmId, syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Account', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Account', 'WHERE Active = true', async (batch) => {
+            const mapped = batch.map((a) => this.mapper.mapAccount(a, this.realmId, syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Account', this.realmId);
         });
-
-        return this.createSuccessResult('Account', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Account', count, Date.now() - startTime);
     }
 
-    private async syncCustomers(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncCustomers(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Customer', 'WHERE Active = true', async (page) => {
-            const mapped = page.map((c: any) => this.mapper.mapCustomer(c, this.realmId, syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Customer', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Customer', 'WHERE Active = true', async (batch) => {
+            const mapped = batch.map((c) => this.mapper.mapCustomer(c, this.realmId, syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Customer', this.realmId);
         });
-
-        return this.createSuccessResult('Customer', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Customer', count, Date.now() - startTime);
     }
 
-    private async syncVendors(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncVendors(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Vendor', 'WHERE Active = true', async (page) => {
-            const mapped = page.map((v: any) => this.mapper.mapVendor(v, this.realmId, syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Vendor', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Vendor', 'WHERE Active = true', async (batch) => {
+            const mapped = batch.map((v) => this.mapper.mapVendor(v, this.realmId, syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Vendor', this.realmId);
         });
-
-        return this.createSuccessResult('Vendor', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Vendor', count, Date.now() - startTime);
     }
 
-    private async syncInvoices(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncInvoices(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Invoice', '', async (page) => {
-            const mapped = page.map((i: any) => this.mapper.mapTransaction(i, this.realmId, 'Invoice', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Invoice', '', async (batch) => {
+            const mapped = batch.map((i) => this.mapper.mapTransaction(i, this.realmId, 'Invoice', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Invoice', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Invoice', count, Date.now() - startTime);
     }
 
-    private async syncBills(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncBills(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Bill', '', async (page) => {
-            const mapped = page.map((b: any) => this.mapper.mapTransaction(b, this.realmId, 'Bill', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Bill', '', async (batch) => {
+            const mapped = batch.map((b) => this.mapper.mapTransaction(b, this.realmId, 'Bill', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Bill', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Bill', count, Date.now() - startTime);
     }
 
-    private async syncPayments(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncPayments(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Payment', '', async (page) => {
-            const mapped = page.map((p: any) => this.mapper.mapTransaction(p, this.realmId, 'Payment', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Payment', '', async (batch) => {
+            const mapped = batch.map((p) => this.mapper.mapTransaction(p, this.realmId, 'Payment', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Payment', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Payment', count, Date.now() - startTime);
     }
 
-    private async syncPurchases(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncPurchases(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Purchase', '', async (page) => {
-            const mapped = page.map((p: any) => this.mapper.mapTransaction(p, this.realmId, 'Purchase', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Purchase', '', async (batch) => {
+            const mapped = batch.map((p) => this.mapper.mapTransaction(p, this.realmId, 'Purchase', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Purchase', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Purchase', count, Date.now() - startTime);
     }
 
-    private async syncJournalEntries(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncJournalEntries(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'JournalEntry', '', async (page) => {
-            const mapped = page.map((e: any) => this.mapper.mapTransaction(e, this.realmId, 'JournalEntry', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'JournalEntry', '', async (batch) => {
+            const mapped = batch.map((e) => this.mapper.mapTransaction(e, this.realmId, 'JournalEntry', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('JournalEntry', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('JournalEntry', count, Date.now() - startTime);
     }
 
-    private async syncDeposits(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncDeposits(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Deposit', '', async (page) => {
-            const mapped = page.map((d: any) => this.mapper.mapTransaction(d, this.realmId, 'Deposit', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Deposit', '', async (batch) => {
+            const mapped = batch.map((d) => this.mapper.mapTransaction(d, this.realmId, 'Deposit', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Deposit', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Deposit', count, Date.now() - startTime);
     }
 
-    private async syncTransfers(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncTransfers(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
-        let recordsProcessed = 0;
-
-        await this.fetchAndProcessPages(qbClient, 'Transfer', '', async (page) => {
-            const mapped = page.map((t: any) => this.mapper.mapTransaction(t, this.realmId, 'Transfer', syncSessionStartTime));
-            recordsProcessed += await this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
+        const count = await this.fetchAndProcessInBatches(qbClient, 'Transfer', '', async (batch) => {
+            const mapped = batch.map((t) => this.mapper.mapTransaction(t, this.realmId, 'Transfer', syncSessionStartTime));
+            return this.batchService.batchUpsert(prisma, mapped, 'Transaction', this.realmId);
         });
-
-        return this.createSuccessResult('Transfer', recordsProcessed, Date.now() - startTime);
+        return this.createSuccessResult('Transfer', count, Date.now() - startTime);
     }
 
-    private async syncBankActivity(qbClient: any, syncSessionStartTime: Date): Promise<SyncResult> {
+    private async syncBankActivity(qbClient: QbApiClient, syncSessionStartTime: Date): Promise<SyncResult> {
         const startTime = Date.now();
         const bankEntities = ['Purchase', 'Deposit', 'Transfer', 'JournalEntry'];
         let recordsProcessed = 0;
 
         for (const entity of bankEntities) {
-            await this.fetchAndProcessPages(qbClient, entity, '', async (page) => {
-                const mapped = page
-                    .map((record: any) => this.mapper.mapToUnifiedBankTransaction(record, entity, this.realmId, syncSessionStartTime))
-                    .filter((m) => m !== null); // Ensure we don't pass nulls if mapping failed
+            recordsProcessed += await this.fetchAndProcessInBatches(qbClient, entity, '', async (batch) => {
+                const mapped = batch
+                    .map((record) => this.mapper.mapToUnifiedBankTransaction(record, entity, this.realmId, syncSessionStartTime))
+                    .filter((m) => m !== null);
 
                 if (mapped.length > 0) {
-                    recordsProcessed += await this.batchService.batchUpsert(
+                    return this.batchService.batchUpsert(
                         prisma,
                         mapped,
                         'BankTransaction',
                         this.realmId
                     );
                 }
+                return 0;
             });
         }
 
