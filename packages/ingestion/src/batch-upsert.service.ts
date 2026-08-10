@@ -11,6 +11,18 @@ export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
 export class BatchUpsertService {
     private logger = createLogger({ name: 'BatchUpsertService' });
 
+    /**
+     * Checks if a value is a Prisma/Decimal.js Decimal instance
+     */
+    private isDecimal(val: any): boolean {
+        return (
+            val !== null &&
+            typeof val === 'object' &&
+            (val.constructor?.name === 'Decimal' ||
+                (typeof val.toFixed === 'function' && typeof val.toNumber === 'function' && !Array.isArray(val)))
+        );
+    }
+
     async batchUpsert<T extends Record<string, any>>(
         prisma: any,
         records: T[],
@@ -56,6 +68,9 @@ export class BatchUpsertService {
                                 const val = record[col];
                                 if (val instanceof Date) {
                                     values.push(val);
+                                } else if (this.isDecimal(val)) {
+                                    // Convert Prisma Decimal objects to string representation for SQL numeric parameters
+                                    values.push(val.toString());
                                 } else if (typeof val === 'object' && val !== null) {
                                     values.push(JSON.stringify(val));
                                     cast = '::jsonb'; // Explicit cast for PostgreSQL JSON mapping
