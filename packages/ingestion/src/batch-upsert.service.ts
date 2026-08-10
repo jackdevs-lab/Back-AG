@@ -69,11 +69,11 @@ export class BatchUpsertService {
                                 if (val instanceof Date) {
                                     values.push(val);
                                 } else if (this.isDecimal(val)) {
-                                    // Convert Prisma Decimal objects to string representation for SQL numeric parameters
                                     values.push(val.toString());
+                                    cast = '::numeric';
                                 } else if (typeof val === 'object' && val !== null) {
                                     values.push(JSON.stringify(val));
-                                    cast = '::jsonb'; // Explicit cast for PostgreSQL JSON mapping
+                                    cast = '::jsonb';
                                 } else {
                                     values.push(val ?? null);
                                 }
