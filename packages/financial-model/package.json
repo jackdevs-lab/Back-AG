@@ -4,7 +4,7 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc",
+        "build": "pnpm run prisma:generate && tsc",
         "dev": "tsc -w",
         "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
         "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma"
