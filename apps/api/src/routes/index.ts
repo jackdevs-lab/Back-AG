@@ -37,7 +37,7 @@ router.get('/launch', (req: Request, res: Response) => {
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
+router.get('/qb-disconnect-callback', (req: Request, res: Response) => {
     const realmId = String(
         req.query.realmId ||
         req.query.realmid ||
