@@ -21,65 +21,42 @@ router.use('/auth', authRouter);
 router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
 
 router.get('/version', (req, res) => {
-    res.json({ version: '1.0.1-debug-oauth', timestamp: new Date().toISOString() });
+    res.json({
+        version: '1.0.1',
+        timestamp: new Date().toISOString()
+    });
 });
 
 router.get('/launch', (req: Request, res: Response) => {
     logger.info('Intuit launch URL triggered', { rawQuery: req.query });
-    const frontendUrl = process.env.FRONTEND_URL || 'https://auditorgen.com';
+    const frontendUrl = process.env.FRONTEND_URL;
+
+    if (!frontendUrl) {
+        return res.status(500).send('Frontend URL is not configured');
+    };
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
-    // 1. Log the incoming browser redirect for visibility
-    logger.info('External disconnect browser redirect triggered', {
-        rawQuery: req.query
+router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
+    const realmId = String(
+        req.query.realmId ||
+        req.query.realmid ||
+        req.query.realm_id ||
+        ''
+    ).trim();
+
+    logger.info('QuickBooks external disconnect callback received', {
+        hasRealmId: Boolean(realmId)
     });
 
-    // Support all potential parameter casing formats from Intuit
-    const realmId = (req.query.realmId || req.query.realmid || req.query.realm_id) as string;
+    const frontendUrl = process.env.FRONTEND_URL;
 
-    if (realmId) {
-        try {
-            // 2. Ordered Sweep: Delete child records FIRST, then parent records
-            const childTables = [
-                prisma.ruleFinding,
-                prisma.transaction,
-                prisma.bankTransaction,
-                prisma.reconciliation,
-                prisma.ruleConfig
-            ];
-
-            const parentTables = [
-                prisma.account,
-                prisma.customer,
-                prisma.vendor
-            ];
-
-            await prisma.$transaction([
-                // Delete child dependent records first
-                ...childTables.map(table => (table as any).deleteMany({ where: { realmId } })),
-                // Delete parent entities
-                ...parentTables.map(table => (table as any).deleteMany({ where: { realmId } })),
-                // Delete main connection record last
-                prisma.qbConnection.deleteMany({ where: { realmId } })
-            ]);
-
-            logger.info(`Cleaned up external disconnect and purged orphaned records for realmId: ${realmId}`);
-        } catch (error) {
-            logger.error(`Failed database cleanup during redirect for realmId: ${realmId}`, error);
-        }
-    } else {
-        logger.warn('Disconnect callback hit, but no realmId was found in the URL query parameters.');
+    if (!frontendUrl) {
+        logger.error('FRONTEND_URL is not configured');
+        return res.status(500).send('Frontend URL is not configured');
     }
 
-    // 3. Redirect with the realmId safely attached
-    const frontendUrl = process.env.FRONTEND_URL || 'https://auditorgen.com';
-    const redirectUrl = realmId
-        ? `${frontendUrl}/disconnect?realmId=${encodeURIComponent(realmId)}`
-        : `${frontendUrl}/disconnect`;
-
-    return res.redirect(redirectUrl);
+    return res.redirect(`${frontendUrl}/disconnected`);
 });
 
 // Protected routes
