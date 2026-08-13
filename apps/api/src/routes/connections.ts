@@ -150,6 +150,8 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // IMPORTANT:
+        // The realmId must belong to the authenticated tenant.
         const connection = await prisma.qbConnection.findFirst({
             where: {
                 tenantId,
@@ -184,68 +186,233 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                 ? 'https://sandbox-quickbooks.api.intuit.com'
                 : 'https://quickbooks.api.intuit.com';
 
+        /*
+         * ---------------------------------------------------------
+         * 1. Get the current access token.
+         * This decrypts it and refreshes it if it is near expiry.
+         * ---------------------------------------------------------
+         */
+        let accessToken: string;
+
         try {
-            const accessToken = await oauthService.refreshIfNeeded(
+            accessToken = await oauthService.refreshIfNeeded(
                 connection.realmId,
                 tenantId
             );
+        } catch (error) {
+            logger.error('Unable to obtain QuickBooks access token', {
+                tenantId,
+                realmId: connection.realmId,
+                connectionId: connection.id,
+                error,
+            });
 
-            const response = await fetch(
+            return res.status(200).json({
+                success: true,
+                connected: false,
+                reason: 'AUTHORIZATION_CHECK_FAILED',
+                message: 'QuickBooks authorization could not be verified',
+            });
+        }
+
+        /*
+         * Helper for making the QuickBooks health check.
+         */
+        const checkQuickBooks = async (token: string) => {
+            return fetch(
                 `${qbBaseUrl}/v3/company/${connection.realmId}/companyinfo/${connection.realmId}`,
                 {
                     headers: {
-                        Authorization: `Bearer ${accessToken}`,
+                        Authorization: `Bearer ${token}`,
                         Accept: 'application/json',
                     },
                 }
             );
+        };
 
-            if (response.ok) {
-                return res.json({
-                    success: true,
-                    connected: true,
-                    message: 'QuickBooks connection is still active',
-                });
-            }
-
-            if (response.status === 401) {
-                logger.warn('QuickBooks authorization revoked', {
-                    tenantId,
-                    realmId: connection.realmId,
-                    connectionId: connection.id,
-                });
-
-                await deleteConnectionData(connection.id);
-
-                return res.json({
-                    success: true,
-                    connected: false,
-                    message: 'QuickBooks connection has been removed',
-                });
-            }
-
-            logger.warn('QuickBooks connection verification returned non-success', {
+        /*
+         * ---------------------------------------------------------
+         * 2. First authorization check.
+         * ---------------------------------------------------------
+         */
+        let qbResponse: globalThis.Response;
+        try {
+            qbResponse = await checkQuickBooks(accessToken);
+        } catch (error) {
+            logger.error('QuickBooks health check request failed', {
                 tenantId,
                 realmId: connection.realmId,
-                status: response.status,
+                connectionId: connection.id,
+                error,
             });
 
-            return res.status(502).json({
-                success: false,
-                message: 'Unable to verify QuickBooks connection',
-            });
-        } catch (error) {
-            logger.error('QuickBooks connection verification failed', error);
-
-            return res.status(502).json({
-                success: false,
-                message: 'Unable to verify QuickBooks connection',
+            return res.status(200).json({
+                success: true,
+                connected: false,
+                reason: 'QUICKBOOKS_UNREACHABLE',
+                message: 'Unable to reach QuickBooks',
             });
         }
+
+        /*
+         * ---------------------------------------------------------
+         * 3. Token works.
+         * ---------------------------------------------------------
+         */
+        if (qbResponse.ok) {
+            return res.status(200).json({
+                success: true,
+                connected: true,
+                reason: 'AUTHORIZED',
+                message: 'QuickBooks connection is active',
+            });
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 4. Access token rejected.
+         *
+         * DO NOT DELETE ANYTHING.
+         *
+         * Force a refresh using the stored refresh token.
+         * ---------------------------------------------------------
+         */
+        if (qbResponse.status === 401) {
+            logger.warn('QuickBooks access token rejected; attempting forced refresh', {
+                tenantId,
+                realmId: connection.realmId,
+                connectionId: connection.id,
+            });
+
+            try {
+                // Fetch the decrypted connection credentials.
+                const fullConnection = await oauthService.getConnection(
+                    connection.realmId,
+                    tenantId
+                );
+
+                // Force refresh regardless of current access-token expiry.
+                const refreshedTokenData =
+                    await oauthService.refreshAccessToken(
+                        fullConnection.refreshToken
+                    );
+
+                // Save the new access + refresh token pair.
+                await oauthService.saveConnection(
+                    tenantId,
+                    connection.realmId,
+                    refreshedTokenData
+                );
+
+                // Retry the QuickBooks request with the new token.
+                const retryResponse = await checkQuickBooks(
+                    refreshedTokenData.access_token
+                );
+
+                if (retryResponse.ok) {
+                    logger.info(
+                        'QuickBooks authorization restored after token refresh',
+                        {
+                            tenantId,
+                            realmId: connection.realmId,
+                            connectionId: connection.id,
+                        }
+                    );
+
+                    return res.status(200).json({
+                        success: true,
+                        connected: true,
+                        reason: 'AUTHORIZED_AFTER_REFRESH',
+                        message: 'QuickBooks connection is active',
+                    });
+                }
+
+                if (retryResponse.status === 401) {
+                    logger.warn(
+                        'QuickBooks rejected both original and refreshed authorization',
+                        {
+                            tenantId,
+                            realmId: connection.realmId,
+                            connectionId: connection.id,
+                        }
+                    );
+
+                    return res.status(200).json({
+                        success: true,
+                        connected: false,
+                        reason: 'AUTHORIZATION_REVOKED',
+                        message: 'QuickBooks authorization has been revoked',
+                    });
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    connected: false,
+                    reason: 'QUICKBOOKS_VERIFICATION_FAILED',
+                    message: 'QuickBooks authorization could not be verified',
+                });
+            } catch (refreshError) {
+                /*
+                 * This is the important signal.
+                 *
+                 * If the original access token is rejected AND
+                 * the refresh token can no longer be used, we
+                 * have strong evidence that the authorization has
+                 * been revoked/invalidated.
+                 *
+                 * Still DO NOT delete anything here.
+                 */
+                logger.warn(
+                    'QuickBooks refresh failed after authorization rejection',
+                    {
+                        tenantId,
+                        realmId: connection.realmId,
+                        connectionId: connection.id,
+                        error: refreshError,
+                    }
+                );
+
+                return res.status(200).json({
+                    success: true,
+                    connected: false,
+                    reason: 'AUTHORIZATION_REVOKED',
+                    message: 'QuickBooks authorization is no longer valid',
+                });
+            }
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 5. Any other QuickBooks status.
+         * Do not interpret it as disconnection.
+         * ---------------------------------------------------------
+         */
+        logger.warn('QuickBooks verification returned unexpected status', {
+            tenantId,
+            realmId: connection.realmId,
+            connectionId: connection.id,
+            status: qbResponse.status,
+        });
+
+        return res.status(200).json({
+            success: true,
+            connected: false,
+            reason: 'QUICKBOOKS_VERIFICATION_FAILED',
+            message: 'QuickBooks connection could not be verified',
+        });
     } catch (error) {
         logger.error('Error in verify-and-sync route', error);
+
+        if (error instanceof AppError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                message: error.message,
+            });
+        }
+
         return res.status(500).json({
-            error: 'Internal Server Error',
+            success: false,
+            message: 'Internal Server Error',
         });
     }
 });
