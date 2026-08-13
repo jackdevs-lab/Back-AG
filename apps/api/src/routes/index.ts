@@ -39,21 +39,23 @@ router.get('/launch', (req: Request, res: Response) => {
 });
 
 router.get('/qb/disconnect-callback', async (req, res) => {
-    const realmId = String(req.query.realmId || '').trim();
+    const rawRealmId = req.query.realmId || req.query.realmid || req.query.realmID;
+    const realmId = String(rawRealmId || '').trim();
 
     if (realmId) {
         const connections = await prisma.qbConnection.findMany({
             where: { realmId },
-            select: { id: true }
+            select: { id: true },
         });
 
         for (const connection of connections) {
             await deleteConnectionData(connection.id);
         }
+
+        return res.redirect(`${process.env.FRONTEND_URL}/disconnect?realmId=${realmId}`);
     }
 
-    // UPDATE THIS LINE: Append the realmId so the frontend Next.js page can read it
-    return res.redirect(`${process.env.FRONTEND_URL}/disconnect?realmId=${realmId}`);
+    return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
 });
 
 // Protected routes
