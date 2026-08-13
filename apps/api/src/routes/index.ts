@@ -38,61 +38,21 @@ router.get('/launch', (req: Request, res: Response) => {
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
-    const realmId = String(
-        req.query.realmId ||
-        req.query.realmid ||
-        req.query.realm_id ||
-        ''
-    ).trim();
+router.get('/qb/disconnect-callback', async (req, res) => {
+    const realmId = String(req.query.realmId || '').trim();
 
-    const frontendUrl = process.env.FRONTEND_URL;
-
-    if (!frontendUrl) {
-        logger.error('FRONTEND_URL is not configured');
-        return res.status(500).send('Frontend URL is not configured');
-    }
-
-    if (!realmId) {
-        logger.warn('QuickBooks disconnect callback received without realmId');
-
-        return res.redirect(`${frontendUrl}/disconnect`);
-    }
-
-    try {
-        const connection = await prisma.qbConnection.findFirst({
+    if (realmId) {
+        await prisma.qbConnection.updateMany({
             where: { realmId },
-            select: {
-                id: true,
-                tenantId: true,
-                realmId: true,
+            data: {
+                isActive: false,
+                syncStatus: 'ERROR',
+                lastSyncMessage: 'QuickBooks authorization disconnected externally',
             },
         });
-
-        if (!connection) {
-            logger.warn('No QuickBooks connection found for disconnected realm', {
-                realmId,
-            });
-
-            return res.redirect(`${frontendUrl}/disconnect`);
-        }
-
-        await deleteConnectionData(connection.id);
-
-        logger.info('QuickBooks disconnect cleanup completed', {
-            realmId: connection.realmId,
-            tenantId: connection.tenantId,
-            connectionId: connection.id,
-        });
-    } catch (error) {
-        logger.error('QuickBooks disconnect cleanup failed', error, {
-            realmId,
-        });
-
-        // Do not expose internal errors to Intuit.
     }
 
-    return res.redirect(`${frontendUrl}/disconnect`);
+    return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
 });
 
 // Protected routes
