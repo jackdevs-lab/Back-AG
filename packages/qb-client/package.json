@@ -10,7 +10,7 @@
     "dependencies": {
         "@qb-health/financial-model": "workspace:*",
         "@qb-health/utils": "workspace:*",
-        "axios": "^1.6.2",
+        "axios": "^1.19.0",
         "axios-retry": "^4.0.0"
     },
     "devDependencies": {

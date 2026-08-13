@@ -8,8 +8,8 @@
         "dev": "tsc -w"
     },
     "dependencies": {
-        "nodemailer": "^6.9.7",
         "@qb-health/financial-model": "workspace:*",
-        "@qb-health/utils": "workspace:*"
+        "@qb-health/utils": "workspace:*",
+        "nodemailer": "^9.0.5"
     }
 }
