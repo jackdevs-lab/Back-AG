@@ -42,17 +42,18 @@ router.get('/qb/disconnect-callback', async (req, res) => {
     const realmId = String(req.query.realmId || '').trim();
 
     if (realmId) {
-        await prisma.qbConnection.updateMany({
+        const connections = await prisma.qbConnection.findMany({
             where: { realmId },
-            data: {
-                isActive: false,
-                syncStatus: 'ERROR',
-                lastSyncMessage: 'QuickBooks authorization disconnected externally',
-            },
+            select: { id: true }
         });
+
+        for (const connection of connections) {
+            await deleteConnectionData(connection.id);
+        }
     }
 
-    return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
+    // UPDATE THIS LINE: Append the realmId so the frontend Next.js page can read it
+    return res.redirect(`${process.env.FRONTEND_URL}/disconnect?realmId=${realmId}`);
 });
 
 // Protected routes
