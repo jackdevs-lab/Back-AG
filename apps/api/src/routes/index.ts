@@ -11,6 +11,7 @@ import reportsRouter from './reports';
 import webhooksRouter from './webhooks';
 import subscriptionsRouter from './subscriptions';
 import { prisma } from '@qb-health/financial-model';
+import { deleteConnectionData } from '../services/connection-cleanup';
 
 const router: Router = Router();
 
@@ -37,17 +38,13 @@ router.get('/launch', (req: Request, res: Response) => {
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb-disconnect-callback', (req: Request, res: Response) => {
+router.get('/qb/disconnect-callback', async (req: Request, res: Response) => {
     const realmId = String(
         req.query.realmId ||
         req.query.realmid ||
         req.query.realm_id ||
         ''
     ).trim();
-
-    logger.info('QuickBooks external disconnect callback received', {
-        hasRealmId: Boolean(realmId),
-    });
 
     const frontendUrl = process.env.FRONTEND_URL;
 
@@ -56,11 +53,46 @@ router.get('/qb-disconnect-callback', (req: Request, res: Response) => {
         return res.status(500).send('Frontend URL is not configured');
     }
 
-    const redirectUrl = realmId
-        ? `${frontendUrl}/disconnect?realmId=${encodeURIComponent(realmId)}`
-        : `${frontendUrl}/disconnect`;
+    if (!realmId) {
+        logger.warn('QuickBooks disconnect callback received without realmId');
 
-    return res.redirect(redirectUrl);
+        return res.redirect(`${frontendUrl}/disconnect`);
+    }
+
+    try {
+        const connection = await prisma.qbConnection.findFirst({
+            where: { realmId },
+            select: {
+                id: true,
+                tenantId: true,
+                realmId: true,
+            },
+        });
+
+        if (!connection) {
+            logger.warn('No QuickBooks connection found for disconnected realm', {
+                realmId,
+            });
+
+            return res.redirect(`${frontendUrl}/disconnect`);
+        }
+
+        await deleteConnectionData(connection.id);
+
+        logger.info('QuickBooks disconnect cleanup completed', {
+            realmId: connection.realmId,
+            tenantId: connection.tenantId,
+            connectionId: connection.id,
+        });
+    } catch (error) {
+        logger.error('QuickBooks disconnect cleanup failed', error, {
+            realmId,
+        });
+
+        // Do not expose internal errors to Intuit.
+    }
+
+    return res.redirect(`${frontendUrl}/disconnect`);
 });
 
 // Protected routes

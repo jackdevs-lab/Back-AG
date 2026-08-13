@@ -36,10 +36,5 @@ export async function deleteConnectionData(connectionId: string): Promise<boolea
         }),
     ]);
 
-    logger.info('QuickBooks connection data deleted', {
-        connectionId,
-        realmId: connection.realmId,
-    });
-
     return true;
 }
