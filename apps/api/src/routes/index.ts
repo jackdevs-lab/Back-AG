@@ -56,7 +56,7 @@ router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
         return res.status(500).send('Frontend URL is not configured');
     }
 
-    return res.redirect(`${frontendUrl}/disconnected`);
+    return res.redirect(`${frontendUrl}/disconnect`);
 });
 
 // Protected routes
