@@ -46,7 +46,7 @@ router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
     ).trim();
 
     logger.info('QuickBooks external disconnect callback received', {
-        hasRealmId: Boolean(realmId)
+        hasRealmId: Boolean(realmId),
     });
 
     const frontendUrl = process.env.FRONTEND_URL;
@@ -56,7 +56,11 @@ router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
         return res.status(500).send('Frontend URL is not configured');
     }
 
-    return res.redirect(`${frontendUrl}/disconnect`);
+    const redirectUrl = realmId
+        ? `${frontendUrl}/disconnect?realmId=${encodeURIComponent(realmId)}`
+        : `${frontendUrl}/disconnect`;
+
+    return res.redirect(redirectUrl);
 });
 
 // Protected routes
