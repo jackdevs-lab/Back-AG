@@ -38,21 +38,15 @@ router.get('/launch', (req: Request, res: Response) => {
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb/disconnect-callback', async (req, res) => {
+router.get('/qb/disconnect-callback', (req, res) => {
+    // 1. Extract if it exists (mostly for the frontend UI to display it if needed)
     const rawRealmId = req.query.realmId || req.query.realmid || req.query.realmID;
     const realmId = String(rawRealmId || '').trim();
 
-    if (realmId) {
-        // 1. Safe to delete/deactivate because this request came via Intuit's redirect flow
-        await prisma.qbConnection.deleteMany({
-            where: { realmId },
-        });
+    // 2. NO PRISMA DELETIONS HERE. EVER.
 
-        console.log(`QuickBooks App Center disconnect processed for realmId: ${realmId}`);
-    }
-
-    // 2. Send them to your frontend disconnect/success page
-    return res.redirect(`${process.env.FRONTEND_URL}/disconnect?realmId=${realmId || ''}`);
+    // 3. Just send the user to the frontend disconnect page
+    return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
 });
 
 // Protected routes

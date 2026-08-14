@@ -15,6 +15,15 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
     try {
         const { tenantId } = req;
 
+        // 1. Separate the return keyword to return void
+        if (!tenantId) {
+            res.status(401).json({
+                success: false,
+                message: 'Unauthorized'
+            });
+            return;
+        }
+
         const connections = await prisma.qbConnection.findMany({
             where: { tenantId },
             select: {
@@ -31,11 +40,44 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
             }
         });
 
+        const activeConnections = [];
+
+        for (const connection of connections) {
+            try {
+                // Ensure tenantId is passed as a string
+                await oauthService.refreshIfNeeded(connection.realmId, tenantId as string);
+
+                activeConnections.push(connection);
+            } catch (error: any) {
+                const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
+
+                if (isRevoked) {
+                    logger.warn('Connection verified as revoked on API fetch. Executing DB purge...', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        connectionId: connection.id
+                    });
+
+                    await deleteConnectionData(connection.id);
+                } else {
+                    logger.error('Non-revocation error during connection health check', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        error: error?.message || error
+                    });
+
+                    activeConnections.push(connection);
+                }
+            }
+        }
+
+        // 2. Standard response (implicitly returns void)
         res.json({
             success: true,
-            data: connections
+            data: activeConnections
         });
     } catch (error) {
+        // 3. Error passing (implicitly returns void)
         next(error);
     }
 });
@@ -158,8 +200,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
         });
 
         if (!connections || connections.length === 0) {
-            // If checking a specific realmId, returning 404 is valid.
-            // If checking general tenant status, returning connected: false is cleaner.
             if (realmId) {
                 throw new AppError('Connection not found', 404);
             }
@@ -197,13 +237,28 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                     connection.realmId,
                     tenantId
                 );
-            } catch (error) {
+            } catch (error: any) {
                 logger.error('Unable to obtain QuickBooks access token', {
                     tenantId,
                     realmId: connection.realmId,
                     connectionId: connection.id,
-                    error,
+                    error: error?.message || error,
                 });
+
+                // FIX: Catch the specific Intuit revocation error right here
+                const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
+
+                if (isRevoked) {
+                    logger.warn('Refresh token rejected (invalid_grant). Executing DB purge...', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        connectionId: connection.id
+                    });
+
+                    await deleteConnectionData(connection.id);
+                    anyRevoked = true;
+                }
+
                 // Could not obtain access token; skip to next connection test
                 continue;
             }
