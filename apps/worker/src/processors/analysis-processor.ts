@@ -36,7 +36,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             throw new Error('RuleEngine initialization failed: Not a constructor');
         }
 
-        const ruleEngine = new RuleEngine(realmId, connectionId);
+        const ruleEngine = new RuleEngine(tenantId, realmId, connectionId);
         const { issues, checks } = await ruleEngine.runAllRules();
 
         await job.updateProgress(60);

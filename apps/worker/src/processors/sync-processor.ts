@@ -83,6 +83,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         for (const result of results) {
             await prisma.syncLog.create({
                 data: {
+                    tenantId,
                     realmId,
                     entityType: result.entityType,
                     recordsSynced: result.recordsSynced,

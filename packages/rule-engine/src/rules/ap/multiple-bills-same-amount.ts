@@ -46,7 +46,8 @@ export class MultipleBillsSameAmountRule implements IRule {
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
         return new PipelineRunner<RawBatchItem[], NormResult, DetectionResult, EnrichedFinding[]>(ctx, this.id, this.name, this.version)
             .withData(async (repo, realmId) => {
-                const config = await fetchRuleConfig(repo, realmId, this.id);
+                const config = await fetchRuleConfig(repo, ctx.tenantId, realmId, this.id);
+
                 const lookbackDays = (config?.json as any)?.lookbackDays ?? 730;
 
                 const lookbackDate = new Date();

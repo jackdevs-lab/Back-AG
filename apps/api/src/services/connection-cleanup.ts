@@ -1,18 +1,16 @@
 import { prisma } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 
-export async function deleteConnectionData(connectionId: string): Promise<boolean> {
-    const connection = await prisma.qbConnection.findUnique({
-        where: { id: connectionId },
-        select: {
-            id: true,
-            realmId: true,
-        },
+export async function deleteConnectionData(
+    connectionId: string,
+    tenantId: string
+): Promise<boolean> {
+    const connection = await prisma.qbConnection.findFirst({
+        where: { id: connectionId, tenantId },
+        select: { id: true, realmId: true },
     });
 
-    if (!connection) {
-        return false;
-    }
+    if (!connection) return false;
 
     const tables = [
         prisma.ruleFinding,
@@ -28,7 +26,10 @@ export async function deleteConnectionData(connectionId: string): Promise<boolea
     await prisma.$transaction([
         ...tables.map((table) =>
             (table as any).deleteMany({
-                where: { realmId: connection.realmId },
+                where: {
+                    tenantId,
+                    realmId: connection.realmId,
+                },
             })
         ),
         prisma.qbConnection.delete({

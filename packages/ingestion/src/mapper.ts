@@ -5,6 +5,7 @@ import { Prisma } from '@qb-health/financial-model';
 export type Brand<K, T> = K & { __brand: T };
 export type RealmId = Brand<string, 'RealmId'>;
 export type QbId = Brand<string, 'QbId'>;
+export type TenantId = Brand<string, 'TenantId'>;   // NEW
 export type CompoundId = Brand<string, 'CompoundId'>;
 export type RecordStatus = Brand<'Open' | 'Completed' | 'Void' | 'Paid' | 'Unmatched', 'RecordStatus'>;
 
@@ -30,9 +31,15 @@ export class Mapper {
         return isNaN(parsed) ? 0 : parsed;
     }
 
-    mapAccount(qbAccount: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.AccountCreateInput {
+    mapAccount(
+        qbAccount: any,
+        realmId: RealmId,
+        tenantId: TenantId,                   // NEW parameter
+        syncSessionStartTime: Date
+    ): Prisma.AccountCreateInput {
         return {
             id: this.generateId(realmId, qbAccount.Id),
+            tenantId,                          // NEW field
             realmId,
             qbId: qbAccount.Id,
             name: qbAccount.Name || 'Unnamed Account',
@@ -47,9 +54,15 @@ export class Mapper {
         };
     }
 
-    mapCustomer(qbCustomer: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.CustomerCreateInput {
+    mapCustomer(
+        qbCustomer: any,
+        realmId: RealmId,
+        tenantId: TenantId,                   // NEW parameter
+        syncSessionStartTime: Date
+    ): Prisma.CustomerCreateInput {
         return {
             id: this.generateId(realmId, qbCustomer.Id),
+            tenantId,                          // NEW field
             realmId,
             qbId: qbCustomer.Id,
             name: qbCustomer.DisplayName || qbCustomer.CompanyName || 'Unknown Customer',
@@ -63,9 +76,15 @@ export class Mapper {
         };
     }
 
-    mapVendor(qbVendor: any, realmId: RealmId, syncSessionStartTime: Date): Prisma.VendorCreateInput {
+    mapVendor(
+        qbVendor: any,
+        realmId: RealmId,
+        tenantId: TenantId,                   // NEW parameter
+        syncSessionStartTime: Date
+    ): Prisma.VendorCreateInput {
         return {
             id: this.generateId(realmId, qbVendor.Id),
+            tenantId,                          // NEW field
             realmId,
             qbId: qbVendor.Id,
             name: qbVendor.DisplayName || qbVendor.CompanyName || 'Unknown Vendor',
@@ -77,7 +96,13 @@ export class Mapper {
         };
     }
 
-    mapTransaction(qbTransaction: any, realmId: RealmId, type: string, syncSessionStartTime: Date): Prisma.TransactionCreateInput {
+    mapTransaction(
+        qbTransaction: any,
+        realmId: RealmId,
+        tenantId: TenantId,                   // NEW parameter
+        type: string,
+        syncSessionStartTime: Date
+    ): Prisma.TransactionCreateInput {
         const lines = Array.isArray(qbTransaction.Line) ? qbTransaction.Line : [];
         let rawCategoryId: string | undefined = qbTransaction.DepartmentRef?.value;
         let isReconciled = false;
@@ -134,6 +159,7 @@ export class Mapper {
 
         return {
             id: this.generateId(realmId, qbTransaction.Id),
+            tenantId,                          // NEW field
             realmId,
             qbId: qbTransaction.Id,
             type,
@@ -152,7 +178,13 @@ export class Mapper {
         };
     }
 
-    mapToUnifiedBankTransaction(qbRecord: any, entityType: string, realmId: RealmId, syncSessionStartTime: Date): Prisma.BankTransactionCreateInput {
+    mapToUnifiedBankTransaction(
+        qbRecord: any,
+        entityType: string,
+        realmId: RealmId,
+        tenantId: TenantId,                   // NEW parameter
+        syncSessionStartTime: Date
+    ): Prisma.BankTransactionCreateInput {
         let rawAccountId: string | undefined;
         let amount = qbRecord.Amount ?? qbRecord.TotalAmt ?? 0;
         let description = qbRecord.PrivateNote || qbRecord.Name || 'Bank Activity';
@@ -195,6 +227,7 @@ export class Mapper {
 
         return {
             id: this.generateId(realmId, qbRecord.Id),
+            tenantId,                          // NEW field
             realmId,
             qbId: qbRecord.Id,
             accountId: targetAccountId,

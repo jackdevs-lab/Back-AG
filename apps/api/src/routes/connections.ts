@@ -58,7 +58,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
                         connectionId: connection.id
                     });
 
-                    await deleteConnectionData(connection.id);
+                    await deleteConnectionData(connection.id, tenantId as string);
                 } else {
                     logger.error('Non-revocation error during connection health check', {
                         tenantId,
@@ -255,7 +255,7 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                         connectionId: connection.id
                     });
 
-                    await deleteConnectionData(connection.id);
+                    await deleteConnectionData(connection.id, tenantId as string);
                     anyRevoked = true;
                 }
 
@@ -338,7 +338,7 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                         );
 
                         // DEFINITIVE REVOCATION PROOF -> PURGE DB
-                        await deleteConnectionData(connection.id);
+                        await deleteConnectionData(connection.id, tenantId as string);
                         anyRevoked = true;
                     }
                 } catch (refreshError) {
@@ -352,7 +352,7 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                     );
 
                     // DEFINITIVE REVOCATION PROOF -> PURGE DB
-                    await deleteConnectionData(connection.id);
+                    await deleteConnectionData(connection.id, tenantId as string);
                     anyRevoked = true;
                 }
             }
@@ -475,7 +475,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
         }
 
         // Centralized local cleanup
-        const deleted = await deleteConnectionData(id);
+        const deleted = await deleteConnectionData(id, tenantId);
 
         if (!deleted) {
             throw new AppError('Connection not found', 404);

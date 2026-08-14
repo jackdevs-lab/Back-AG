@@ -1,11 +1,10 @@
 import { BrandedRepository, RealmId, RuleId } from '@qb-health/financial-model';
 import {
-    fetchRuleConfig as primitiveFetchRuleConfig,
     transactionGenerator
 } from '../shared/data-primitives';
 
-export async function fetchRuleConfig(repo: BrandedRepository, realmId: RealmId, ruleId: RuleId) {
-    return primitiveFetchRuleConfig(repo, realmId, ruleId);
+export async function fetchRuleConfig(repo: BrandedRepository, tenantId: string, realmId: RealmId, ruleId: RuleId) {
+    return repo.findRuleConfig(tenantId, realmId, ruleId);
 }
 
 export function getFutureDateBillsGenerator(

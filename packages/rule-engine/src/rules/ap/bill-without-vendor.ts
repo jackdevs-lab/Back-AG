@@ -29,7 +29,8 @@ export class BillWithoutVendorRule implements IRule {
             this.version
         )
             .withData(async (repo, realmId) => {
-                const config = await fetchRuleConfig(repo, realmId, this.id);
+                const config = await fetchRuleConfig(repo, ctx.tenantId, realmId, this.id);
+
                 const lookbackDays = (config?.json as any)?.lookbackDays ?? 730;
                 const lookbackDate = new Date();
                 lookbackDate.setDate(lookbackDate.getDate() - lookbackDays);

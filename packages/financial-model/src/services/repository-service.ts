@@ -50,7 +50,11 @@ export interface BrandedRepository {
     ): Promise<QbConnection | null>;
 
     // Rule config
-    findRuleConfig(realmId: RealmId, ruleId: RuleId): Promise<RuleConfig | null>;
+    findRuleConfig(
+        tenantId: string,
+        realmId: RealmId,
+        ruleId: RuleId
+    ): Promise<RuleConfig | null>;
 
     // Sync logs
     findSyncLogs(params: { realmId: RealmId; entityTypes: string[] }): Promise<any[]>;
@@ -123,9 +127,19 @@ export class PrismaBrandedRepository implements BrandedRepository {
 
     // ---- Rule config -------------------------------------------------------
 
-    async findRuleConfig(realmId: RealmId, ruleId: RuleId): Promise<RuleConfig | null> {
+    async findRuleConfig(
+        tenantId: string,
+        realmId: RealmId,
+        ruleId: RuleId
+    ): Promise<RuleConfig | null> {
         return this.prismaClient.ruleConfig.findUnique({
-            where: { realmId_ruleId: { realmId: realmId as string, ruleId: ruleId as string } },
+            where: {
+                tenantId_realmId_ruleId: {
+                    tenantId: tenantId,
+                    realmId: realmId as string,
+                    ruleId: ruleId as string,
+                },
+            },
         }) as unknown as RuleConfig | null;
     }
 
