@@ -86,7 +86,7 @@ export class BatchUpsertService {
                     let query = `
                         INSERT INTO "${tableName}" (${quotedColumns})
                         VALUES ${valueStrings.join(', ')}
-                        ON CONFLICT ("realmId", "qbId")
+                        ON CONFLICT ("tenantId", "realmId", "qbId")
                         DO UPDATE SET ${updateSet}
                     `;
 
