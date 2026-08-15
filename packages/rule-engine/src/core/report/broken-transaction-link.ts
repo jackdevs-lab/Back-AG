@@ -20,7 +20,7 @@ export function formatReport(realmId: string, reportData: any, unscannable: any[
             id: f.id,
             label: `${sType} ${f.id} - References missing ${tType} ${tId}`,
             details: `Source transaction on ${f.date ? new Date(f.date).toLocaleDateString() : 'N/A'} references a transaction ID that no longer exists in the local database.`,
-            deepLink: `https://app.qbo.intuit.com/app/${routePath}?realmId=${realmId}&txnId=${f.id}`
+            deepLink: `https://sandbox.qbo.intuit.com/app/${routePath}?realmId=${realmId}&txnId=${f.id}`
         };
     });
 

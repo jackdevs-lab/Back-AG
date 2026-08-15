@@ -110,7 +110,7 @@ export class CustomerCreditNoInvoicesRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.name} - $${Math.abs(f.metadata.balance).toFixed(2)}`,
                     details: `Customer has a credit balance of $${Math.abs(f.metadata.balance).toFixed(2)} but has never been invoiced.`,
-                    deepLink: `https://app.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
+                    deepLink: `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
                 }));
 
                 const reportString = formatStandardReport({

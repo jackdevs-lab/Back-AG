@@ -18,7 +18,7 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         id: `${f.metadata.paymentId}-${f.metadata.invoiceId}`,
         label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - Payment ${f.metadata.paymentId}`,
         details: `Payment of $${f.amount.toFixed(2)} on ${new Date(f.date).toISOString().split('T')[0]} is linked to Invoice ${f.metadata.invoiceId} dated ${new Date(f.metadata.invoiceDate).toISOString().split('T')[0]} (in the future).`,
-        deepLink: `https://app.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.paymentId}`
+        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.paymentId}`
     }));
 
     return formatStandardReport({

@@ -15,7 +15,7 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         id: f.metadata.qbId,
         label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} — $${f.amount.toFixed(2)}`,
         details: `Payment on ${f.date.toISOString().split('T')[0]} has not been applied to any invoice.`,
-        deepLink: `https://app.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
     }));
 
     return formatStandardReport({
