@@ -11,7 +11,6 @@ export const verifyPaystackSignature = (req: Request, res: Response, next: NextF
             return res.status(500).json({ error: 'Webhook secret not configured' });
         }
 
-        // Retrieve raw buffer parsed by express.raw()
         const payload = Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body);
         const hash = crypto.createHmac('sha512', secret).update(payload).digest('hex');
 

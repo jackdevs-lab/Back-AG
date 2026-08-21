@@ -11,7 +11,6 @@ export interface QbTokenResponse {
 }
 
 export class OAuthService {
-    // In-flight refresh promise cache to prevent concurrent refresh race conditions
     private refreshPromises: Map<string, Promise<string>> = new Map();
 
     private get clientId(): string {
@@ -96,7 +95,6 @@ export class OAuthService {
         const tokenExpiry = new Date(Date.now() + (tokenData.expires_in * 1000));
 
         const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
-        // Default new connections to ACTIVE for immediate trial syncs
         const defaultSubscriptionStatus = 'ACTIVE';
 
         logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
@@ -160,13 +158,12 @@ export class OAuthService {
         const connection = await this.getConnection(realmId, tenantId);
         const now = new Date();
         const expiry = new Date(connection.tokenExpiry);
-        const threshold = new Date(now.getTime() + 5 * 60 * 1000); // 5 minute buffer
+        const threshold = new Date(now.getTime() + 5 * 60 * 1000);
 
         if (expiry >= threshold) {
             return connection.accessToken;
         }
 
-        // Lock key per realm to eliminate parallel refresh race conditions
         const lockKey = `${tenantId}:${realmId}`;
 
         if (this.refreshPromises.has(lockKey)) {

@@ -18,7 +18,6 @@ export const authMiddleware = async (
     res: Response,
     next: NextFunction
 ) => {
-    // Bypass auth for the launch route
     if (req.path === '/launch' || req.baseUrl?.endsWith('/launch')) {
         return next();
     }
@@ -26,7 +25,6 @@ export const authMiddleware = async (
         let authHeader = req.headers.authorization;
         let tenantIdHeader = req.headers['x-tenant-id'] as string;
 
-        // Fallback to query params for SSE endpoints
         if (!authHeader && req.query.token) {
             authHeader = `Bearer ${req.query.token}`;
         }
@@ -40,13 +38,11 @@ export const authMiddleware = async (
 
         const token = authHeader.split(' ')[1];
 
-        // Guard against dummy stringified tokens ("null", "undefined") before JWT decoding
         if (!token || token === 'null' || token === 'undefined') {
             return next(new AppError('Invalid token format', 401));
         }
 
         try {
-            // Verify the token using Clerk's secret key
             const decoded = await verifyToken(token, {
                 secretKey: process.env.CLERK_SECRET_KEY
             });
@@ -54,15 +50,11 @@ export const authMiddleware = async (
             const userId = decoded.sub;
             const orgId = decoded.org_id;
 
-            // Priority: Organization context takes precedence
             const derivedTenantId = (orgId as string) || userId;
 
-            // Security check: Ensure requested tenant matches token context
             if (tenantIdHeader && derivedTenantId !== tenantIdHeader) {
                 return next(new AppError('Tenant context mismatch', 403));
             }
-
-            // Just-In-Time (JIT) Provisioning
             let tenant = await prisma!.tenant.findUnique({
                 where: { id: derivedTenantId }
             });
@@ -91,7 +83,7 @@ export const authMiddleware = async (
                             id: derivedTenantId,
                             name,
                             email,
-                            isBypassed: isReviewer // Automatically whitelists the Intuit reviewer
+                            isBypassed: isReviewer
                         }
                     });
                     logger.info(`JIT: Successfully provisioned tenant ${derivedTenantId}`);
@@ -101,7 +93,6 @@ export const authMiddleware = async (
                         code: provisionError.code,
                         tenantId: derivedTenantId
                     });
-                    // If creation fails (e.g. race condition), try one last fetch
                     tenant = await prisma!.tenant.findUnique({ where: { id: derivedTenantId } });
                     if (!tenant) return next(new AppError('Failed to initialize workspace context', 500));
                 }

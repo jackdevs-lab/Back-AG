@@ -78,9 +78,8 @@ router.post('/clerk', async (req: Request, res: Response) => {
     }
 });
 
-// Add ": Promise<any>" to the function signature
 router.post('/paystack', async (req: Request, res: Response): Promise<any> => {
-    const secret = process.env.PAYSTACK_TEST_SECRET_KEY; // Consider using LIVE key for production webhook URL
+    const secret = process.env.PAYSTACK_TEST_SECRET_KEY;
     if (!secret) {
         console.error('PAYSTACK_TEST_SECRET_KEY is not defined');
         return res.status(200).json({ success: false, message: 'Server configuration error' });
@@ -99,18 +98,14 @@ router.post('/paystack', async (req: Request, res: Response): Promise<any> => {
 
     console.log(`Paystack webhook received: ${eventType}`);
 
-    // Send response to Paystack immediately so they don't timeout
     res.status(200).json({ success: true });
 
-    // Continue processing in the background
     try {
         if (eventType === 'charge.success' || eventType === 'subscription.create') {
             await handleSubscriptionActivation(event.data, eventType);
         } else if (eventType === 'subscription.update') {
             await handleSubscriptionUpdate(event.data);
-        }
-        // Handle other relevant Paystack events like subscription.disable, invoice.payment_failed etc. if needed
-        else if (eventType === 'subscription.disable') { // Explicitly handle disable event
+        } else if (eventType === 'subscription.disable') {
             await handleSubscriptionDisable(event.data);
         }
     } catch (err) {
@@ -135,7 +130,7 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
     const metadata = parseMetadata(data.metadata);
     const connectionId: string | undefined = metadata.connectionId;
 
-    const packageBought: string | undefined = metadata.packageBought; // Potentially unused now
+    const packageBought: string | undefined = metadata.packageBought;
     const paystackCustCode: string = data.customer?.customer_code || '';
     const paystackPlanCode: string = data.plan?.plan_code || '';
     const transactionRef: string = data.reference || '';
@@ -159,7 +154,7 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
     }
 
     const updateData: any = {
-        subscriptionStatus: 'ACTIVE', // Set to ACTIVE upon successful charge or subscription creation
+        subscriptionStatus: 'ACTIVE',
         paystackCustCode: paystackCustCode || undefined,
         paystackPlanCode: paystackPlanCode || undefined,
         lastTransactionRef: transactionRef
@@ -182,9 +177,9 @@ async function handleSubscriptionActivation(data: any, eventType: string): Promi
 
 async function handleSubscriptionUpdate(data: any): Promise<void> {
     const metadata = parseMetadata(data.metadata);
-    const paystackStatus: string = data.status; // 'active', 'cancelled', 'suspended', 'past_due'
-    const paystackCustCode: string = data.customer?.customer_code || ''; // Fallback identifier
-    const paystackSubscriptionCode: string = data.subscription_code; // Another potential identifier
+    const paystackStatus: string = data.status;
+    const paystackCustCode: string = data.customer?.customer_code || '';
+    const paystackSubscriptionCode: string = data.subscription_code;
 
     let existingConnection = null;
     if (metadata.connectionId) {
@@ -205,9 +200,9 @@ async function handleSubscriptionUpdate(data: any): Promise<void> {
     if (paystackStatus === 'active') {
         subscriptionStatus = 'ACTIVE';
     } else if (paystackStatus === 'past_due') {
-        subscriptionStatus = 'PAST_DUE'; // Or another specific status if needed
-    } else { // Covers 'cancelled', 'suspended', 'failed', etc.
-        subscriptionStatus = 'INACTIVE'; // Generic inactive state for non-active/cancelled states
+        subscriptionStatus = 'PAST_DUE';
+    } else {
+        subscriptionStatus = 'INACTIVE';
     }
 
     await prisma.qbConnection.update({
@@ -238,7 +233,6 @@ async function handleSubscriptionDisable(data: any): Promise<void> {
         return;
     }
 
-    // Explicitly set status to INACTIVE upon disable event
     await prisma.qbConnection.update({
         where: { id: existingConnection.id },
         data: { subscriptionStatus: 'INACTIVE' }
@@ -246,13 +240,10 @@ async function handleSubscriptionDisable(data: any): Promise<void> {
 
     console.log(`Paystack webhook: Disabled subscription (status=INACTIVE) for connectionId: ${existingConnection.id} via subscription.disable`);
 }
-// Inside apps/api/src/routes/webhooks.ts
 
 router.post('/intuit', async (req: Request, res: Response) => {
     try {
         const signature = req.headers['intuit-signature'] as string;
-
-        // Fix: Convert the raw Buffer to a UTF-8 string properly
         const payload = req.body instanceof Buffer ? req.body.toString('utf-8') : JSON.stringify(req.body);
 
         const intuitVerifierToken = process.env.INTUIT_WEBHOOK_TOKEN;
@@ -271,7 +262,7 @@ router.post('/intuit', async (req: Request, res: Response) => {
             return res.status(401).send('Forbidden');
         }
 
-        const eventData = JSON.parse(payload); // Now parses correctly
+        const eventData = JSON.parse(payload);
 
         if (eventData.eventNotifications && Array.isArray(eventData.eventNotifications)) {
             for (const notification of eventData.eventNotifications) {

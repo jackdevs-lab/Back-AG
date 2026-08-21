@@ -20,12 +20,15 @@ export const errorHandler = (
     next: NextFunction
 ) => {
     const { method, url, ip, headers } = req;
-    
+
+    // Safely extract realmId using optional chaining to prevent secondary crashes
+    const safeRealmId = req.query?.realmId || (req.body && typeof req.body === 'object' ? req.body.realmId : undefined);
+
     logger.error(`Unhandled error: ${method} ${url}`, err, {
         ip,
         userAgent: headers['user-agent'],
         tenantId: headers['x-tenant-id'],
-        realmId: req.query.realmId || req.body.realmId
+        realmId: safeRealmId
     });
 
     if (err instanceof AppError) {
@@ -35,9 +38,9 @@ export const errorHandler = (
         });
     }
 
+    // Fallback for unhandled server errors - hide internal file paths from auditors
     return res.status(500).json({
         success: false,
-        error: process.env.NODE_ENV === 'development' || !process.env.NODE_ENV ? err.message : 'Internal server error',
-        stack: process.env.NODE_ENV === 'development' || !process.env.NODE_ENV ? err.stack : undefined
+        error: 'Internal server error'
     });
 };
