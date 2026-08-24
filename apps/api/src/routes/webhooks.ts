@@ -252,13 +252,21 @@ router.post('/intuit', async (req: Request, res: Response) => {
             return res.status(500).send('Configuration Error');
         }
 
+        if (!signature) {
+            return res.status(401).send('Forbidden');
+        }
+
         const hash = crypto
             .createHmac('sha256', intuitVerifierToken)
             .update(payload)
             .digest('base64');
 
-        if (signature !== hash) {
-            logger.warn('Intuit Webhook Signature Mismatch', { expected: hash, received: signature });
+        // SECURE CHANGE: Use timingSafeEqual to prevent timing attacks on signature comparison
+        const signatureBuffer = Buffer.from(signature);
+        const hashBuffer = Buffer.from(hash);
+
+        if (signatureBuffer.length !== hashBuffer.length || !crypto.timingSafeEqual(signatureBuffer, hashBuffer)) {
+            logger.warn('Intuit Webhook Signature Mismatch', { received: signature });
             return res.status(401).send('Forbidden');
         }
 
