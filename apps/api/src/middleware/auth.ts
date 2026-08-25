@@ -24,18 +24,17 @@ export const authMiddleware = async (
     }
 
     try {
-        // SAFE CHANGE: Enforce headers only. Query string tokens risk log leaks and parameter pollution.
         const authHeader = req.headers.authorization;
+        const queryToken = req.query.token as string | undefined;
         const tenantIdHeader = req.headers['x-tenant-id'] as string;
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return next(new AppError('Authorization header required', 401));
-        }
-
-        const token = authHeader.split(' ')[1];
+        // Fallback to query param token for EventSource / SSE connections
+        const token = authHeader?.startsWith('Bearer ')
+            ? authHeader.split(' ')[1]
+            : queryToken;
 
         if (!token || token === 'null' || token === 'undefined') {
-            return next(new AppError('Invalid token format', 401));
+            return next(new AppError('Authorization token required', 401));
         }
 
         try {
@@ -76,16 +75,12 @@ export const authMiddleware = async (
                 }
             }
 
-            // SECURE CHANGE: Read auditor bypass from environment variable whitelist, not raw user attributes
             const allowedReviewerEmail = process.env.AUDITOR_BYPASS_EMAIL || 'intuit-review@auditorgen.com';
             const isReviewer = email.toLowerCase() === allowedReviewerEmail.toLowerCase();
 
-            // SAFE CHANGE: Use Prisma upsert to eliminate race conditions (TOCTOU) during concurrent JIT creation
             const tenant = await prisma!.tenant.upsert({
                 where: { id: derivedTenantId },
-                update: {
-                    // Keep metadata fresh on login if needed, or leave empty
-                },
+                update: {},
                 create: {
                     id: derivedTenantId,
                     name,
