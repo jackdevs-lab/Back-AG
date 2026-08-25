@@ -9,6 +9,7 @@ import { AppError } from '../middleware/error-handler';
 import { syncQueue } from '../queue';
 import reportsRouter from './reports';
 import webhooksRouter from './webhooks';
+import paystackWebhookRouter from './webhooks/paystack';
 import subscriptionsRouter from './subscriptions';
 import { prisma } from '@qb-health/financial-model';
 import { deleteConnectionData } from '../services/connection-cleanup';
@@ -17,9 +18,8 @@ const router: Router = Router();
 
 // Public routes
 router.use('/auth', authRouter);
-
-// Mounted webhooks router with express.raw() to preserve the raw body for HMAC signature verification
-router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
+router.use('/webhooks/paystack', paystackWebhookRouter);
+router.use('/webhooks', webhooksRouter);
 
 router.get('/version', (req, res) => {
     res.json({
