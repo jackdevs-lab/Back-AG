@@ -61,8 +61,6 @@ export const BillPaymentRawSchema = z.object({
     VendorRef: QboRefSchema.optional(),
     CustomerRef: QboRefSchema.optional(),
     TotalAmt: z.number().optional(),
-    // UnappliedAmt is the authoritative QBO field for the unlinked portion of a payment.
-    // Present on Customer Payments when TotalAmt > sum of applied Lines.
     UnappliedAmt: z.number().optional(),
     PaymentRefNum: z.string().optional(),
     Line: z.array(z.object({

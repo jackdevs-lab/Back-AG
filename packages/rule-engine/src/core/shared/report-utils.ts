@@ -38,31 +38,27 @@ export function formatStandardReport(params: ReportParams): string {
             .map(([curr, amt]) => formatCurrency(amt, curr))
             .join(', ');
 
-        resolvedSummary = `Detected ${summaryData.count} findings with a total exposure of ${totalStr}.`;
+        resolvedSummary = `Executive Summary: Identified ${summaryData.count} high-priority items representing a cumulative exposure of ${totalStr}.`;
     }
 
-    const itemList = items.map(item => {
+    const formattedItems = items.map((item, idx) => {
         const linkStr = Array.isArray(item.deepLink)
-            ? item.deepLink.map((l, i) => `[Link ${i + 1}](${l})`).join(', ')
-            : item.deepLink ? `[View](${item.deepLink})` : item.id;
+            ? item.deepLink.map((l, i) => `[Source ${i + 1}](${l})`).join(' | ')
+            : item.deepLink ? `[Open in QuickBooks](${item.deepLink})` : `Ref: ${item.id}`;
 
-        return `- **${item.label}** (${linkStr}) — ${item.details}`;
-    }).join('\n');
-    const trailer = summaryData && summaryData.count > items.length
-        ? `\n\n*(Showing top ${items.length} of ${summaryData.count} total findings)*`
-        : '';
-
-    const blindSpotsSection = params.blindSpots && params.blindSpots.length > 0
-        ? `\n\n### Data Blind Spots\nFound ${params.blindSpots.length} records that could not be fully analyzed due to data integrity issues.`
-        : '';
+        return `### ${idx + 1}. ${item.label}\n- **Impact Details:** ${item.details}\n- **QuickBooks Reference:** ${linkStr}`;
+    }).join('\n\n');
 
     return [
-        `### ${title}`,
-        resolvedSummary ? `${resolvedSummary}\n` : '',
-        itemList || '_No specific items detected._',
-        trailer,
-        blindSpotsSection,
-        `\n**Recommendation:** ${recommendation}`
+        `##  Audit Report: ${title}`,
+        `> **Status:** Action Required\n> **Date Generated:** ${new Date().toISOString().split('T')[0]}`,
+        `\n${resolvedSummary}\n`,
+        `---`,
+        `### Detailed Findings`,
+        formattedItems || '_No anomalies detected in this category._',
+        `\n---`,
+        `### Recommended Remediation`,
+        `> ${recommendation}`
     ].filter(Boolean).join('\n');
 }
 
