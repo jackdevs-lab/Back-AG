@@ -118,6 +118,10 @@ export class RuleEngine {
     }
 
     private registerRules(): void {
+        // Prevent re-registration and log spam on subsequent worker jobs
+        if (ruleRegistry.getCount() > 0) {
+            return;
+        }
         // Hygiene Rules
         ruleRegistry.register(new UnappliedPaymentsRule());
         // DISABLED - Not in current priority list
