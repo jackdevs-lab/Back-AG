@@ -1,9 +1,9 @@
 // apps/api/src/utils/report-parser.ts
-
 export interface DiagnosticFinding {
     id: string;
     type: string;
-    url: string;
+    url: string;       // primary URL
+    urls: string[];    // all URLs found in the finding
     description: string;
 }
 
@@ -13,24 +13,39 @@ export interface ParsedMarkdownResult {
     recommendation: string | null;
 }
 
+// Helper to extract all URLs from a string
+function extractUrls(text: string): string[] {
+    const urls: string[] = [];
+    const regex = /https?:\/\/[^\s\)]+/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        urls.push(match[0]);
+    }
+    return urls;
+}
+
 export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
     if (!message) {
         return { findings: [], totalExposure: null, recommendation: null };
     }
 
-    // 1. Try JSON parsing
+    // Try JSON parsing first
     try {
         const parsedJson = JSON.parse(message);
         if (Array.isArray(parsedJson)) {
             return {
-                findings: parsedJson.map((item: any, idx: number) => ({
-                    id: String(item.id || item.txnId || `ID-${idx}`),
-                    type: String(item.type || item.entityType || 'Audit Item'),
-                    url: String(item.url || item.qbLink || '#'),
-                    description: String(item.description || item.message || '')
-                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-                        .replace(/\*\*/g, '')
-                })),
+                findings: parsedJson.map((item: any, idx: number) => {
+                    const urls = extractUrls(String(item.url || item.qbLink || ''));
+                    return {
+                        id: String(item.id || item.txnId || `ID-${idx}`),
+                        type: String(item.type || item.entityType || 'Audit Item'),
+                        url: urls[0] || '',
+                        urls,
+                        description: String(item.description || item.message || '')
+                            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                            .replace(/\*\*/g, '')
+                    };
+                }),
                 totalExposure: null,
                 recommendation: null
             };
@@ -39,29 +54,43 @@ export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
         // continue to markdown parser
     }
 
-    // 2. Parse markdown format produced by formatStandardReport
     const findings: DiagnosticFinding[] = [];
     let totalExposure: string | null = null;
     let recommendation: string | null = null;
 
+    // Extract total exposure
     const exposureMatch = message.match(/cumulative exposure of\s+\$([\d,.]+)/i);
     if (exposureMatch && exposureMatch[1]) {
         totalExposure = `$${exposureMatch[1]}`;
     }
 
+    // Extract recommendation
     const recSectionStart = message.indexOf('### Recommended Remediation');
     if (recSectionStart !== -1) {
         const afterHeading = message.substring(recSectionStart + '### Recommended Remediation'.length);
         const blockquoteMatch = afterHeading.match(/>\s*(.*?)(?:\n|$)/);
         if (blockquoteMatch && blockquoteMatch[1]) {
-            recommendation = blockquoteMatch[1].trim();
-            recommendation = recommendation.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*/g, '');
+            recommendation = blockquoteMatch[1].trim()
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                .replace(/\*\*/g, '');
         }
     }
 
+    // Find detailed findings section
     const findingsHeading = '### Detailed Findings';
     const findingsStartIdx = message.indexOf(findingsHeading);
     if (findingsStartIdx === -1) {
+        // Fallback: try to extract URLs from the whole message as one finding
+        const urls = extractUrls(message);
+        if (urls.length > 0) {
+            findings.push({
+                id: 'finding-1',
+                type: 'Finding',
+                url: urls[0],
+                urls,
+                description: message.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\*\*/g, '')
+            });
+        }
         return { findings, totalExposure, recommendation };
     }
 
@@ -69,8 +98,9 @@ export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
     const remediationIdx = findingsContent.indexOf('### Recommended Remediation');
     const findingsOnly = remediationIdx !== -1 ? findingsContent.substring(0, remediationIdx) : findingsContent;
 
+    // Regex to match each numbered item
     const findingRegex = /###\s+\d+\.\s+([^\n]+)\n([\s\S]*?)(?=###\s+\d+\.|$)/g;
-    let match: RegExpExecArray | null;
+    let match;
     let idx = 0;
 
     while ((match = findingRegex.exec(findingsOnly)) !== null) {
@@ -78,19 +108,14 @@ export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
         const label = match[1].trim();
         const body = match[2];
 
-        let url = '';
-        const linkMatch = body.match(/\[Open in QuickBooks\]\((.*?)\)/);
-        if (linkMatch && linkMatch[1]) {
-            url = linkMatch[1].trim();
-        } else {
-            const anyLink = body.match(/\[(.*?)\]\((https?:\/\/\S+)\)/);
-            if (anyLink && anyLink[2]) {
-                url = anyLink[2].trim();
-            }
-        }
+        // Extract all URLs from the body
+        const urls = extractUrls(body);
+        const primaryUrl = urls.length > 0 ? urls[0] : '';
 
+        // Clean description: remove markdown link syntax and bold
         let description = body;
 
+        // Remove the Impact Details and QuickBooks Reference prefixes if present
         const impactRegex = /(?:-\s*)?\*\*Impact Details:\*\*/i;
         const impactMatch = description.match(impactRegex);
         if (impactMatch) {
@@ -103,7 +128,7 @@ export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
             description = description.substring(0, qbMatch.index!);
         }
 
-        description = description.replace(/\[Open in QuickBooks\]\([^)]+\)/gi, '');
+        // Remove all markdown links, keep text
         description = description.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
         description = description.replace(/\*\*([^*]+)\*\*/g, '$1');
         description = description.replace(/__([^_]+)__/g, '$1');
@@ -112,7 +137,8 @@ export function parseMarkdownFindings(message: string): ParsedMarkdownResult {
         findings.push({
             id: `finding-${idx}`,
             type: label,
-            url,
+            url: primaryUrl,
+            urls,
             description,
         });
     }
