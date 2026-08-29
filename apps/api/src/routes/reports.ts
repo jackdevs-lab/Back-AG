@@ -3,28 +3,32 @@ import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
 import PDFDocument from 'pdfkit';
 import { parseMarkdownFindings, DiagnosticFinding } from '../utils/report-parser';
+import { AuthRequest } from '../middleware/auth'; // adjust path as needed
 
 const router: Router = Router();
 
-router.get('/pdf/:connectionId', async (req: Request, res: Response, next: NextFunction) => {
+// Secure endpoint: uses authenticated tenant, no client-supplied connectionId
+router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const { connectionId } = req.params;
-
-        if (!connectionId) {
-            throw new AppError('Connection ID is required', 400);
+        const tenantId = req.tenantId;
+        if (!tenantId) {
+            throw new AppError('Authentication required', 401);
         }
 
-        const connection = await prisma.qbConnection.findUnique({
-            where: { id: connectionId }
+        // Find the most recent active connection for this tenant
+        const connection = await prisma.qbConnection.findFirst({
+            where: {
+                tenantId,
+                subscriptionStatus: 'ACTIVE'
+            },
+            orderBy: { lastSyncAt: 'desc' } // or createdAt if lastSyncAt not present
         });
 
         if (!connection) {
-            throw new AppError('Connection not found', 404);
+            throw new AppError('No active connection found for this account', 404);
         }
 
-        if (connection.subscriptionStatus !== 'ACTIVE') {
-            throw new AppError('Active subscription required to download audit reports', 402);
-        }
+        const connectionId = connection.id;
 
         const diagnosticRun = await prisma.diagnosticRun.findFirst({
             where: { connectionId },
