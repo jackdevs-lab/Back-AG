@@ -40,6 +40,11 @@ function getSeverityColor(severity: string): string {
 
 function drawFooter(doc: PDFKit.PDFDocument) {
     const pageNumber = doc.page; // current page number (1-based)
+
+    // Temporarily remove bottom margin to prevent infinite auto-pagination loop
+    const originalBottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+
     doc.save();
     doc
         .strokeColor(COLORS.border)
@@ -61,6 +66,9 @@ function drawFooter(doc: PDFKit.PDFDocument) {
             align: 'right',
         });
     doc.restore();
+
+    // Restore original bottom margin
+    doc.page.margins.bottom = originalBottomMargin;
 }
 
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
@@ -114,9 +122,9 @@ function drawCoverPage(
             doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).fill(COLORS.lightBg);
         }
         doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
-        doc.text(row[0], PAGE.margin + 8, y + 10, { width: colWidths[0] - 16 });
+        doc.text(row[0] as string, PAGE.margin + 8, y + 10, { width: colWidths[0] - 16 });
         doc.text(String(row[1]), PAGE.margin + colWidths[0] + 8, y + 10, { width: colWidths[1] - 16 });
-        doc.text(row[2], PAGE.margin + colWidths[0] + colWidths[1] + 8, y + 10, { width: colWidths[2] - 16 });
+        doc.text(row[2] as string, PAGE.margin + colWidths[0] + colWidths[1] + 8, y + 10, { width: colWidths[2] - 16 });
         y += rowHeight;
     });
 
@@ -141,7 +149,6 @@ function drawCoverPage(
             lineGap: 3,
         });
 
-    // Footer on cover page will be drawn by pageAdded event? No, pageAdded may not fire for first page. We'll draw manually.
     drawFooter(doc);
 }
 
@@ -233,7 +240,11 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="qb-health-report-${connectionId.slice(0, 8)}.pdf"`);
 
-        const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4' });
+        // FIX: Configure specific bottom margin to allow footer drawing
+        const doc = new PDFDocument({
+            size: 'A4',
+            margins: { top: PAGE.margin, left: PAGE.margin, right: PAGE.margin, bottom: 30 }
+        });
 
         // Draw footer on every new page after the first
         doc.on('pageAdded', () => {
@@ -242,9 +253,9 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
 
         doc.pipe(res);
 
-        // Cover page (page 1) – manually draw footer after content
+        // Cover page (page 1) – handles drawing its own footer
         drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
-        drawFooter(doc); // ensure footer on cover page
+        // FIX: Removed duplicate drawFooter(doc) call here
 
         // Start findings on new page
         doc.addPage();
