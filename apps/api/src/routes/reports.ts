@@ -90,19 +90,23 @@ function drawCoverPage(
     checks: any[],
     uniqueIssues: any[]
 ) {
-    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('AUDIT GEN');
-    doc.font('Helvetica').fontSize(9).fillColor(COLORS.subtle).text('QuickBooks Health Diagnostics');
+    // Brand
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('AUDIT GEN', PAGE.margin, doc.y);
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.subtle).text('QuickBooks Health Diagnostics', PAGE.margin, doc.y);
     doc.moveDown(3);
 
-    doc.font('Helvetica-Bold').fontSize(24).fillColor(COLORS.ink).text('Financial Health Audit Report');
+    // Title
+    doc.font('Helvetica-Bold').fontSize(24).fillColor(COLORS.ink).text('Financial Health Audit Report', PAGE.margin, doc.y);
     doc.moveDown(0.5);
-    doc.font('Helvetica').fontSize(11).fillColor(COLORS.muted).text(`Generated ${new Date().toISOString().split('T')[0]}`);
+    doc.font('Helvetica').fontSize(11).fillColor(COLORS.muted).text(`Generated ${new Date().toISOString().split('T')[0]}`, PAGE.margin, doc.y);
     doc.moveDown(2);
 
+    // Simple metrics table
     const tableTop = doc.y;
     const colWidths = [PAGE.contentWidth * 0.4, PAGE.contentWidth * 0.3, PAGE.contentWidth * 0.3];
     const rowHeight = 30;
 
+    // Header row
     doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.white);
     doc.rect(PAGE.margin, tableTop, PAGE.contentWidth, rowHeight).fill(COLORS.primary);
     doc.fillColor(COLORS.white)
@@ -129,10 +133,14 @@ function drawCoverPage(
         y += rowHeight;
     });
 
-    doc.moveDown(2);
+    // Reset cursor position to left margin and place it below the table
+    doc.x = PAGE.margin;
+    doc.y = y + 25;
 
-    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.ink).text('Executive Summary');
+    // Executive summary
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.ink).text('Executive Summary', PAGE.margin, doc.y);
     doc.moveDown(0.4);
+
     const score = diagnosticRun.healthScore;
     let assessment = 'The diagnostic identified areas requiring review within the connected QuickBooks data.';
     if (score !== null && score !== undefined) {
@@ -141,13 +149,22 @@ function drawCoverPage(
         else if (score >= 60) assessment = 'The diagnostic identified several areas that require attention and follow-up.';
         else assessment = 'The diagnostic identified significant issues that should be investigated and resolved as a priority.';
     }
-    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(assessment, { width: PAGE.contentWidth, lineGap: 4 });
+
+    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(assessment, PAGE.margin, doc.y, {
+        width: PAGE.contentWidth,
+        lineGap: 4
+    });
     doc.moveDown(2);
-    doc.font('Helvetica').fontSize(8).fillColor(COLORS.subtle)
-        .text('This report is generated from the latest completed diagnostic run and is intended to assist with accounting review and remediation.', {
+
+    doc.font('Helvetica').fontSize(8).fillColor(COLORS.subtle).text(
+        'This report is generated from the latest completed diagnostic run and is intended to assist with accounting review and remediation.',
+        PAGE.margin,
+        doc.y,
+        {
             width: PAGE.contentWidth,
             lineGap: 3,
-        });
+        }
+    );
 }
 
 function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
