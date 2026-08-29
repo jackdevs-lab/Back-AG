@@ -38,10 +38,11 @@ function getSeverityColor(severity: string): string {
     return COLORS.muted;
 }
 
-function drawFooter(doc: PDFKit.PDFDocument) {
-    const pageNumber = doc.page; // current page number (1-based)
+function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
+    // 1. Save the current text cursor position so we don't break the main content flow
+    const oldX = doc.x;
+    const oldY = doc.y;
 
-    // Temporarily remove bottom margin to prevent infinite auto-pagination loop
     const originalBottomMargin = doc.page.margins.bottom;
     doc.page.margins.bottom = 0;
 
@@ -52,23 +53,30 @@ function drawFooter(doc: PDFKit.PDFDocument) {
         .moveTo(PAGE.margin, 790)
         .lineTo(PAGE.width - PAGE.margin, 790)
         .stroke();
+
     doc
         .font('Helvetica')
         .fontSize(7.5)
         .fillColor(COLORS.subtle)
         .text('AUDIT GEN  •  QUICKBOOKS HEALTH DIAGNOSTICS', PAGE.margin, 800, {
             width: 350,
+            lineBreak: false // Prevents automatic text wrapping interference
         });
+
     doc
         .fontSize(7.5)
         .text(`Page ${pageNumber}`, PAGE.width - PAGE.margin - 80, 800, {
             width: 80,
             align: 'right',
+            lineBreak: false
         });
+
     doc.restore();
 
-    // Restore original bottom margin
+    // 2. Restore margins and the cursor position
     doc.page.margins.bottom = originalBottomMargin;
+    doc.x = oldX;
+    doc.y = oldY;
 }
 
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
@@ -148,8 +156,6 @@ function drawCoverPage(
             width: PAGE.contentWidth,
             lineGap: 3,
         });
-
-    drawFooter(doc);
 }
 
 function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
@@ -240,24 +246,25 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="qb-health-report-${connectionId.slice(0, 8)}.pdf"`);
 
-        // FIX: Configure specific bottom margin to allow footer drawing
         const doc = new PDFDocument({
             size: 'A4',
             margins: { top: PAGE.margin, left: PAGE.margin, right: PAGE.margin, bottom: 30 }
         });
 
-        // Draw footer on every new page after the first
+        // Track page numbers cleanly
+        let pageCount = 1;
         doc.on('pageAdded', () => {
-            drawFooter(doc);
+            pageCount++;
+            drawFooter(doc, pageCount);
         });
 
         doc.pipe(res);
 
-        // Cover page (page 1) – handles drawing its own footer
+        // Draw cover page and its footer explicitly 
         drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
-        // FIX: Removed duplicate drawFooter(doc) call here
+        drawFooter(doc, 1);
 
-        // Start findings on new page
+        // Move to findings
         doc.addPage();
 
         doc.font('Helvetica-Bold').fontSize(16).fillColor(COLORS.ink).text('Diagnostic Findings');
