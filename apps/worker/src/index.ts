@@ -5,10 +5,10 @@ import { analysisProcessor, AnalysisJobData } from './processors/analysis-proces
 import { logger } from '@qb-health/utils';
 import { syncProcessor } from './processors/sync-processor';
 import { prisma } from '@qb-health/financial-model';
+
 console.log(`[WORKER] Starting workers...`);
 console.log(`[WORKER] Redis connection: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 
-// Queue error listener (Queue only emits 'error', not 'ready' or 'failed')
 syncQueue.on('error', (err: Error) => {
     console.error(`[WORKER] ❌ Queue connection error:`, err);
 });
@@ -19,14 +19,15 @@ const redisConfig = {
     password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null
 };
-// Clear any zombie 'SYNCING' statuses left over from server restarts or crashes
+
 async function clearStaleSyncStates() {
     try {
         const result = await prisma.qbConnection.updateMany({
             where: { syncStatus: 'SYNCING' },
             data: {
                 syncStatus: 'ERROR',
-                lastSyncMessage: 'Cooldown period active'
+                // FIX: Updated to an accurate error message
+                lastSyncMessage: 'Sync interrupted due to worker process restart.'
             }
         });
         if (result.count > 0) {
@@ -37,31 +38,19 @@ async function clearStaleSyncStates() {
     }
 }
 
-// Run the clear routine on boot
 clearStaleSyncStates();
-// ==========================================
-// 1. SYNC WORKER (This was missing!)
-// ==========================================
+
 const syncWorker = new Worker(
     'qb-sync',
     syncProcessor,
     {
         connection: redisConfig,
-        concurrency: 1 // Syncs should run sequentially to avoid QuickBooks API rate limits
+        concurrency: 1
     }
 );
 
-syncWorker.on('completed', (job) => {
-    logger.info('Sync job completed', { jobId: job.id });
-});
+// FIX: Removed syncWorker.on('completed') and syncWorker.on('failed') to prevent duplicate logs (handled by queue.ts)
 
-syncWorker.on('failed', (job, err) => {
-    logger.error('Sync job failed', err, { jobId: job?.id });
-});
-
-// ==========================================
-// 2. ANALYSIS WORKER
-// ==========================================
 const analysisWorker = new Worker<AnalysisJobData, {
     success: boolean;
     diagnosticRunId: string;
@@ -76,15 +65,8 @@ const analysisWorker = new Worker<AnalysisJobData, {
     }
 );
 
-analysisWorker.on('completed', (job) => {
-    logger.info('Analysis job completed', { jobId: job.id });
-});
+// FIX: Removed analysisWorker.on('completed') and analysisWorker.on('failed') to prevent duplicate logs (handled by queue.ts)
 
-analysisWorker.on('failed', (job, error) => {
-    logger.error('Analysis job failed', error, { jobId: job?.id });
-});
-
-// Graceful shutdown
 process.on('SIGTERM', async () => {
     logger.info('Shutting down workers...');
     await syncWorker.close();

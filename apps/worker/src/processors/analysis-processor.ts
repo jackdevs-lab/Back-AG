@@ -22,7 +22,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
     jobLogger.info('Starting analysis job');
 
-    // Early guardrail: Ensure connectionId is present
     if (!connectionId) {
         throw new Error(`Analysis job failed: connectionId is required for job ${job.id}`);
     }
@@ -30,7 +29,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     try {
         await job.updateProgress(10);
 
-        // Defensive check for RuleEngine constructor
         if (typeof RuleEngine !== 'function') {
             jobLogger.error('RuleEngine is not a constructor. Import resolved to:', { type: typeof RuleEngine });
             throw new Error('RuleEngine initialization failed: Not a constructor');
@@ -41,12 +39,10 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         await job.updateProgress(60);
 
-        // Calculate health score
         const scoreBreakdown = HealthScoreCalculator.calculate(checks);
 
         await job.updateProgress(80);
 
-        // Pre-calculate aggregate metrics for the teaser / metadata payload
         const criticalCount = issues.filter((i: any) => i.severity === 'CRITICAL').length;
         const warningCount = issues.filter((i: any) => i.severity === 'WARNING').length;
         const infoCount = issues.filter((i: any) => i.severity === 'INFO').length;
@@ -87,7 +83,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         const totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // Save diagnostic run
         const diagnosticRun = await prisma.diagnosticRun.create({
             data: {
                 tenantId,
@@ -128,7 +123,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         await job.updateProgress(90);
 
-        // Send alerts if score is low
         if (scoreBreakdown.finalScore < 50) {
             const alertData: AlertData = {
                 score: scoreBreakdown.finalScore,
@@ -154,16 +148,8 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             issueCount: issues.length
         });
 
-        // Update connection status to IDLE and set lastSyncAt timestamp using primary key
-        await prisma.qbConnection.update({
-            where: { id: connectionId },
-            data: {
-                syncStatus: 'IDLE',
-                lastSyncAt: new Date(),
-                lastSyncMessage: null
-            }
-        });
-        jobLogger.info('Connection status updated to IDLE after successful analysis.');
+        // FIX: Removed the syncStatus manipulation block from here. 
+        // Sync state is now managed entirely by the sync processor.
 
         return {
             success: true,
@@ -173,19 +159,9 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         };
     } catch (error) {
         jobLogger.error('Analysis job failed', error as Error);
-
         const errorMessage = (error as Error).message || 'Analysis job failed unexpectedly';
-        if (connectionId) {
-            try {
-                await prisma.qbConnection.update({
-                    where: { id: connectionId },
-                    data: { syncStatus: 'ERROR', lastSyncMessage: errorMessage }
-                });
-                jobLogger.info('Connection status updated to ERROR after failed analysis.');
-            } catch (statusUpdateError) {
-                jobLogger.error('Failed to update connection status to ERROR after analysis failure', statusUpdateError as Error);
-            }
-        }
+
+        // FIX: Removed syncStatus update to ERROR from here to prevent state overlap.
 
         try {
             await prisma.diagnosticRun.create({
