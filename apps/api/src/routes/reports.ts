@@ -8,10 +8,6 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 const router: Router = Router();
 router.use(authMiddleware);
 
-/* -------------------------------------------------------------------------- */
-/*                                   THEME                                    */
-/* -------------------------------------------------------------------------- */
-
 const COLORS = {
     ink: '#1a1a1a',
     dark: '#333333',
@@ -25,6 +21,7 @@ const COLORS = {
     success: '#2e7d32',
     warning: '#b26a00',
     danger: '#b71c1c',
+    info: '#0047ab',
 };
 
 const PAGE = {
@@ -35,20 +32,17 @@ const PAGE = {
     bottom: 800,
 };
 
-/* -------------------------------------------------------------------------- */
-/*                                  HELPERS                                   */
-/* -------------------------------------------------------------------------- */
+let currentPage = 1; // Global page counter
 
 function getSeverityColor(severity: string): string {
     const s = severity.toUpperCase();
     if (s.includes('CRITICAL') || s.includes('ERROR')) return COLORS.danger;
     if (s.includes('WARNING') || s.includes('WARN')) return COLORS.warning;
-    if (s.includes('INFO')) return COLORS.muted;
+    if (s.includes('INFO')) return COLORS.info;
     return COLORS.muted;
 }
 
-function drawFooter(doc: PDFKit.PDFDocument) {
-    const pageNumber = doc.bufferedPageRange().count;
+function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
     doc.save();
     doc
         .strokeColor(COLORS.border)
@@ -75,12 +69,9 @@ function drawFooter(doc: PDFKit.PDFDocument) {
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
     if (doc.y + requiredHeight > PAGE.bottom) {
         doc.addPage();
+        // pageAdded event will draw footer and increment page number
     }
 }
-
-/* -------------------------------------------------------------------------- */
-/*                              COVER PAGE                                    */
-/* -------------------------------------------------------------------------- */
 
 function drawCoverPage(
     doc: PDFKit.PDFDocument,
@@ -197,36 +188,29 @@ function drawCoverPage(
             lineGap: 3,
         });
 
-    // Draw footer on cover page
-    drawFooter(doc);
+    // Draw footer on cover page (page 1)
+    drawFooter(doc, 1);
 }
-
-/* -------------------------------------------------------------------------- */
-/*                             FINDING SECTION                                */
-/* -------------------------------------------------------------------------- */
 
 function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
     ensureSpace(doc, 60); // Reserve space for header at least
 
-    // Header with rule name and severity
+    // Header: rule name and severity on same line
     doc
         .font('Helvetica-Bold')
         .fontSize(11)
         .fillColor(COLORS.ink)
-        .text(`${index + 1}. ${issue.ruleName}`, { width: PAGE.contentWidth - 100 });
+        .text(`${index + 1}. ${issue.ruleName}`, PAGE.margin, doc.y, {
+            width: PAGE.contentWidth - 80,
+        });
     doc
         .font('Helvetica-Bold')
         .fontSize(9)
         .fillColor(getSeverityColor(issue.severity))
-        .text(issue.severity.toUpperCase(), { align: 'right', width: 80, continued: false });
-    // This will place severity at same line? Actually above code will put severity on next line because of continued false. We'll adjust later.
-
-    // Simpler: put severity after rule name on same line using text with width
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(9)
-        .fillColor(getSeverityColor(issue.severity))
-        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 80, doc.y - 14, { width: 80, align: 'right' });
+        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 70, doc.y - 14, {
+            width: 70,
+            align: 'right',
+        });
 
     doc.moveDown(0.5);
 
@@ -300,10 +284,6 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
     doc.moveDown(1);
 }
 
-/* -------------------------------------------------------------------------- */
-/*                             REPORT ROUTE                                   */
-/* -------------------------------------------------------------------------- */
-
 router.get(
     '/pdf',
     async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -338,7 +318,6 @@ router.get(
                 where: { runId: diagnosticRun.id },
             });
 
-            // Unique issues per rule
             const uniqueIssuesMap = new Map<string, typeof issues[0]>();
             for (const issue of issues) {
                 if (!uniqueIssuesMap.has(issue.ruleId)) {
@@ -356,7 +335,6 @@ router.get(
             const doc = new PDFDocument({
                 margin: PAGE.margin,
                 size: 'A4',
-                bufferPages: true,
                 info: {
                     Title: 'Audit Gen — QuickBooks Financial Health Audit',
                     Author: 'Audit Gen',
@@ -365,17 +343,19 @@ router.get(
                 },
             });
 
-            // Footer on every page (except cover handled manually)
+            // Reset page counter and set up pageAdded event
+            currentPage = 1;
             doc.on('pageAdded', () => {
-                drawFooter(doc);
+                currentPage++;
+                drawFooter(doc, currentPage);
             });
 
             doc.pipe(res);
 
-            // Cover page
+            // Cover page (page 1) - footer drawn manually inside drawCoverPage
             drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
 
-            // Start findings on a new page
+            // Start findings on a new page (page 2)
             doc.addPage();
 
             doc
