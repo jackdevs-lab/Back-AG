@@ -3,7 +3,7 @@ import { SyncEngine } from '@qb-health/ingestion';
 import { prisma, RealmId } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 import { analysisQueue } from '../queue';
-import { createQbClient, QbApiClient } from 'packages/qb-client'; // Adjust import path if necessary
+import { createQbClient } from '@qb-health/qb-client';
 export interface SyncJobData {
     realmId?: string;
     tenantId?: string;

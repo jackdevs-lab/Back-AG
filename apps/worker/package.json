@@ -11,6 +11,7 @@
         "@qb-health/diagnostics": "workspace:*",
         "@qb-health/financial-model": "workspace:*",
         "@qb-health/ingestion": "workspace:*",
+        "@qb-health/qb-client": "workspace:*",
         "@qb-health/notifications": "workspace:*",
         "@qb-health/rule-engine": "workspace:*",
         "@qb-health/utils": "workspace:*",

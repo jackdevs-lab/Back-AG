@@ -142,6 +142,9 @@ importers:
       '@qb-health/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@qb-health/qb-client':
+        specifier: workspace:*
+        version: link:../../packages/qb-client
       '@qb-health/rule-engine':
         specifier: workspace:*
         version: link:../../packages/rule-engine
