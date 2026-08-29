@@ -21,15 +21,17 @@ export function chunk<T>(arr: T[], size: number): T[][] {
 
 export class SyncEngine {
     private realmId: RealmId;
+    private qbClient: QbApiClient;
     private tenantId: string;
     private logger: any;
     private mapper: Mapper;
     private batchService: BatchUpsertService;
     private repo: BrandedRepository;
 
-    constructor(realmId: RealmId, tenantId: string) {
+    constructor(realmId: RealmId, tenantId: string, qbClient: QbApiClient) {
         this.realmId = realmId;
         this.tenantId = tenantId;
+        this.qbClient = qbClient;
         this.logger = createLogger({ realmId, tenantId });
         this.mapper = new Mapper();
         this.batchService = new BatchUpsertService();
@@ -176,8 +178,8 @@ export class SyncEngine {
                 'Deposit',
                 'Transfer',
             ];
-            await this.syncDeletions(qbClient, allEntityTypes, syncSessionStartTime);
-
+            // Pass only entities and changedSince
+            await this.syncDeletions(qbClient, allEntityTypes, syncSessionStartTime.toISOString());
             await this.repo.updateQbConnectionStatus(
                 this.tenantId,
                 this.realmId,
@@ -259,86 +261,39 @@ export class SyncEngine {
         return totalProcessed;
     }
 
-    private async syncDeletions(
-        qbClient: any,
-        entities: SupportedEntityType[],
-        since: Date
-    ): Promise<void> {
+    // Notice we are passing qbClient as the first parameter now, and NOT using 'this.qbClient'
+    private async syncDeletions(qbClient: QbApiClient, entities: string[], changedSince: string): Promise<void> {
         try {
-            const sinceStr = since.toISOString().split('.')[0] + 'Z';
-            const entitiesParam = entities.join(',');
-            const cdcResponse = await qbClient.cdc(entitiesParam, sinceStr);
+            const cdcData = await qbClient.cdc(entities, changedSince);
+            const cdcResponses = cdcData?.CDCResponse || [];
 
-            if (!cdcResponse || !cdcResponse.CDCResponse) return;
+            for (const response of cdcResponses) {
+                for (const queryResp of response.QueryResponse || []) {
+                    const deletedObjects = queryResp.deletedObject || [];
 
-            for (const cdcEntity of cdcResponse.CDCResponse) {
-                const entityName = Object.keys(cdcEntity.QueryResponse[0] || {})[0];
-                if (!entityName) continue;
+                    for (const item of deletedObjects) {
+                        this.logger.info(`CDC Deletion detected for ${item.name} ID: ${item.id}`);
 
-                const records = cdcEntity.QueryResponse[0][entityName];
-                if (!records) continue;
-
-                const deletedIds = records
-                    .filter((r: any) => r.status === 'Deleted')
-                    .map((r: any) => r.Id);
-
-                if (deletedIds.length > 0) {
-                    const realmIdStr = String(this.realmId);
-                    const tenantId = this.tenantId;
-
-                    switch (entityName) {
-                        case 'Account':
-                            await prisma.account.deleteMany({
-                                where: {
-                                    tenantId,
-                                    realmId: realmIdStr,
-                                    qbId: { in: deletedIds },
-                                },
-                            });
-                            break;
-                        case 'Customer':
+                        if (item.name === 'Customer') {
                             await prisma.customer.deleteMany({
-                                where: {
-                                    tenantId,
-                                    realmId: realmIdStr,
-                                    qbId: { in: deletedIds },
-                                },
+                                where: { qbId: item.id, realmId: this.realmId },
                             });
-                            break;
-                        case 'Vendor':
+                        } else if (item.name === 'Vendor') {
                             await prisma.vendor.deleteMany({
-                                where: {
-                                    tenantId,
-                                    realmId: realmIdStr,
-                                    qbId: { in: deletedIds },
-                                },
+                                where: { qbId: item.id, realmId: this.realmId },
                             });
-                            break;
-                        default:
+                        } else {
                             await prisma.transaction.deleteMany({
-                                where: {
-                                    tenantId,
-                                    realmId: realmIdStr,
-                                    qbId: { in: deletedIds },
-                                },
+                                where: { qbId: item.id, realmId: this.realmId },
                             });
-                            break;
+                        }
                     }
-
-                    this.logger.info(
-                        `Purged ${deletedIds.length} deleted ${entityName} records via CDC`,
-                        { realmId: this.realmId, tenantId: this.tenantId }
-                    );
                 }
             }
         } catch (error) {
-            this.logger.error('CDC Deletion check failed', error as Error, {
-                realmId: this.realmId,
-                tenantId: this.tenantId,
-            });
+            this.logger.error({ error }, 'CDC Deletion check failed');
         }
     }
-
     private async syncAccounts(
         qbClient: QbApiClient,
         syncSessionStartTime: Date

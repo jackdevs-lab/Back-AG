@@ -3,7 +3,7 @@ import { SyncEngine } from '@qb-health/ingestion';
 import { prisma, RealmId } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 import { analysisQueue } from '../queue';
-
+import { createQbClient, QbApiClient } from 'packages/qb-client'; // Adjust import path if necessary
 export interface SyncJobData {
     realmId?: string;
     tenantId?: string;
@@ -71,7 +71,8 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         });
         syncStarted = true;
 
-        const syncEngine = new SyncEngine(realmId as RealmId, tenantId);
+        const qbClient = await createQbClient(realmId as string, tenantId);
+        const syncEngine = new SyncEngine(realmId as any, tenantId, qbClient);
         const results = await syncEngine.runFullSync();
 
         await job.updateProgress(80);

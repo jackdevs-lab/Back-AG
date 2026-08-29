@@ -13,6 +13,22 @@ export interface QbQueryResponse<T> {
     time: string;
 }
 
+export interface QbCdcDeletedObject {
+    name: string;
+    id: string;
+    status: string;
+}
+
+export interface QbCdcResponse {
+    CDCResponse: Array<{
+        QueryResponse: Array<{
+            [key: string]: any;
+            deletedObject?: QbCdcDeletedObject[];
+        }>;
+    }>;
+    time: string;
+}
+
 interface QbRequestConfig extends InternalAxiosRequestConfig {
     _retry?: boolean;
 }
@@ -203,6 +219,30 @@ export class QbApiClient {
         } while (true);
 
         return allResults;
+    }
+
+    async cdc(entities: string[], changedSince: string): Promise<QbCdcResponse> {
+        try {
+            const response = await this.client.get<QbCdcResponse>(`/company/${this.realmId}/cdc`, {
+                params: {
+                    entities: entities.join(','),
+                    changedSince
+                }
+            });
+            return response.data;
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            const qbFault = this.extractQbFault(axiosError);
+
+            logger.error('QB CDC request failed', axiosError, {
+                entities,
+                changedSince,
+                realmId: this.realmId,
+                tenantId: this.tenantId,
+                qbFault
+            });
+            throw error;
+        }
     }
 
     async get<T>(endpoint: string, id: string): Promise<T> {
