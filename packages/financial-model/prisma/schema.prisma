@@ -80,7 +80,18 @@ model QbConnection {
   @@index([subscriptionStatus])
   @@index([currentPeriodEnd])
 }
+model QbSyncState {
+  id         String   @id @default(uuid())
+  tenantId   String
+  realmId    String
+  entityType String
+  lastSyncAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  @@unique([realmId, entityType], name: "realmId_entityType")
+  @@index([tenantId, realmId])
+}
 model RuleFinding {
   id          String   @id @default(uuid())
   tenantId    String
