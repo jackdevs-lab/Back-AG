@@ -21,12 +21,10 @@ const COLORS = {
     background: '#ffffff',
     lightBg: '#f7f7f7',
     white: '#ffffff',
-    primary: '#1a4d8f', // corporate blue
-    primaryLight: '#e8f0fa',
+    primary: '#1a4d8f',
     success: '#2e7d32',
     warning: '#b26a00',
     danger: '#b71c1c',
-    info: '#1a4d8f',
 };
 
 const PAGE = {
@@ -45,7 +43,7 @@ function getSeverityColor(severity: string): string {
     const s = severity.toUpperCase();
     if (s.includes('CRITICAL') || s.includes('ERROR')) return COLORS.danger;
     if (s.includes('WARNING') || s.includes('WARN')) return COLORS.warning;
-    if (s.includes('INFO')) return COLORS.info;
+    if (s.includes('INFO')) return COLORS.muted;
     return COLORS.muted;
 }
 
@@ -74,14 +72,9 @@ function drawFooter(doc: PDFKit.PDFDocument) {
     doc.restore();
 }
 
-function addPage(doc: PDFKit.PDFDocument) {
-    doc.addPage({ size: 'A4', margin: PAGE.margin });
-    drawFooter(doc);
-}
-
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
     if (doc.y + requiredHeight > PAGE.bottom) {
-        addPage(doc);
+        doc.addPage();
     }
 }
 
@@ -127,8 +120,12 @@ function drawCoverPage(
 
     // Summary metrics table
     const tableTop = doc.y;
-    const colWidths = [PAGE.contentWidth * 0.4, PAGE.contentWidth * 0.3, PAGE.contentWidth * 0.3];
-    const rowHeight = 40;
+    const colWidths = [
+        PAGE.contentWidth * 0.4,
+        PAGE.contentWidth * 0.3,
+        PAGE.contentWidth * 0.3
+    ];
+    const rowHeight = 30;
 
     // Table header
     doc
@@ -140,9 +137,9 @@ function drawCoverPage(
         .fill(COLORS.primary);
     doc
         .fillColor(COLORS.white)
-        .text('Metric', PAGE.margin + 8, tableTop + 12, { width: colWidths[0] - 16 })
-        .text('Value', PAGE.margin + colWidths[0] + 8, tableTop + 12, { width: colWidths[1] - 16 })
-        .text('Details', PAGE.margin + colWidths[0] + colWidths[1] + 8, tableTop + 12, { width: colWidths[2] - 16 });
+        .text('Metric', PAGE.margin + 8, tableTop + 10, { width: colWidths[0] - 16 })
+        .text('Value', PAGE.margin + colWidths[0] + 8, tableTop + 10, { width: colWidths[1] - 16 })
+        .text('Details', PAGE.margin + colWidths[0] + colWidths[1] + 8, tableTop + 10, { width: colWidths[2] - 16 });
 
     const rows = [
         ['Health Score', diagnosticRun.healthScore ?? 'N/A', ''],
@@ -160,9 +157,9 @@ function drawCoverPage(
             .font('Helvetica')
             .fontSize(9)
             .fillColor(COLORS.ink);
-        doc.text(row[0], PAGE.margin + 8, y + 12, { width: colWidths[0] - 16 });
-        doc.text(String(row[1]), PAGE.margin + colWidths[0] + 8, y + 12, { width: colWidths[1] - 16 });
-        doc.text(row[2], PAGE.margin + colWidths[0] + colWidths[1] + 8, y + 12, { width: colWidths[2] - 16 });
+        doc.text(row[0], PAGE.margin + 8, y + 10, { width: colWidths[0] - 16 });
+        doc.text(String(row[1]), PAGE.margin + colWidths[0] + 8, y + 10, { width: colWidths[1] - 16 });
+        doc.text(row[2], PAGE.margin + colWidths[0] + colWidths[1] + 8, y + 10, { width: colWidths[2] - 16 });
         y += rowHeight;
     });
 
@@ -208,120 +205,99 @@ function drawCoverPage(
 /*                             FINDING SECTION                                */
 /* -------------------------------------------------------------------------- */
 
-function drawFindingCard(doc: PDFKit.PDFDocument, issue: any, index: number) {
-    ensureSpace(doc, 80);
-    const cardX = PAGE.margin;
-    const cardWidth = PAGE.contentWidth;
-    const cardTop = doc.y;
+function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
+    ensureSpace(doc, 60); // Reserve space for header at least
 
-    // Card border
-    doc
-        .save()
-        .strokeColor(COLORS.border)
-        .lineWidth(0.5)
-        .roundedRect(cardX, cardTop, cardWidth, 0, 0) // will adjust height later
-        .stroke();
-    doc.restore();
-
-    // Header
+    // Header with rule name and severity
     doc
         .font('Helvetica-Bold')
-        .fontSize(10)
+        .fontSize(11)
         .fillColor(COLORS.ink)
-        .text(`${index + 1}. ${issue.ruleName}`, cardX + 12, cardTop + 12, {
-            width: cardWidth - 100,
-        });
-
-    // Severity label
-    const sevColor = getSeverityColor(issue.severity);
+        .text(`${index + 1}. ${issue.ruleName}`, { width: PAGE.contentWidth - 100 });
     doc
         .font('Helvetica-Bold')
-        .fontSize(8)
-        .fillColor(sevColor)
-        .text(issue.severity.toUpperCase(), cardX + cardWidth - 90, cardTop + 14, {
-            width: 70,
-            align: 'right',
-        });
+        .fontSize(9)
+        .fillColor(getSeverityColor(issue.severity))
+        .text(issue.severity.toUpperCase(), { align: 'right', width: 80, continued: false });
+    // This will place severity at same line? Actually above code will put severity on next line because of continued false. We'll adjust later.
 
-    doc.y = cardTop + 35;
+    // Simpler: put severity after rule name on same line using text with width
+    doc
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .fillColor(getSeverityColor(issue.severity))
+        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 80, doc.y - 14, { width: 80, align: 'right' });
+
+    doc.moveDown(0.5);
 
     const parsed = parseMarkdownFindings(issue.message);
-
     if (parsed.findings.length > 0) {
         parsed.findings.forEach((finding: DiagnosticFinding) => {
-            drawFindingContent(doc, finding);
+            // Type
+            if (finding.type) {
+                ensureSpace(doc, 20);
+                doc
+                    .font('Helvetica-Bold')
+                    .fontSize(9.5)
+                    .fillColor(COLORS.dark)
+                    .text(finding.type, { width: PAGE.contentWidth });
+                doc.moveDown(0.2);
+            }
+
+            // Description
+            if (finding.description) {
+                ensureSpace(doc, 30);
+                doc
+                    .font('Helvetica')
+                    .fontSize(9)
+                    .fillColor(COLORS.muted)
+                    .text(finding.description, { width: PAGE.contentWidth, lineGap: 3 });
+                doc.moveDown(0.3);
+            }
+
+            // Links
+            if (finding.urls.length > 0) {
+                ensureSpace(doc, 25);
+                finding.urls.forEach((url, urlIdx) => {
+                    ensureSpace(doc, 20);
+                    const linkLabel =
+                        finding.urls.length === 1
+                            ? 'Open in QuickBooks'
+                            : `Open QuickBooks Link ${urlIdx + 1}`;
+                    doc
+                        .font('Helvetica')
+                        .fontSize(8.5)
+                        .fillColor(COLORS.primary)
+                        .text(linkLabel, {
+                            link: url,
+                            underline: true,
+                            width: PAGE.contentWidth,
+                        });
+                    doc.moveDown(0.2);
+                });
+            }
+
+            doc.moveDown(0.5);
         });
     } else {
         // Fallback: raw message
-        ensureSpace(doc, 40);
+        ensureSpace(doc, 30);
         doc
             .font('Helvetica')
             .fontSize(9)
             .fillColor(COLORS.muted)
-            .text(issue.message, { width: cardWidth - 24, lineGap: 3 });
+            .text(issue.message, { width: PAGE.contentWidth, lineGap: 3 });
         doc.moveDown(0.5);
     }
 
-    // Card bottom border
-    const endY = doc.y + 8;
+    // Horizontal rule after each finding
     doc
-        .save()
         .strokeColor(COLORS.border)
         .lineWidth(0.5)
-        .moveTo(cardX, endY)
-        .lineTo(cardX + cardWidth, endY)
+        .moveTo(PAGE.margin, doc.y)
+        .lineTo(PAGE.width - PAGE.margin, doc.y)
         .stroke();
-    doc.restore();
-
     doc.moveDown(1);
-}
-
-function drawFindingContent(doc: PDFKit.PDFDocument, finding: DiagnosticFinding) {
-    const contentX = PAGE.margin + 12;
-    const contentWidth = PAGE.contentWidth - 24;
-
-    if (finding.type) {
-        ensureSpace(doc, 25);
-        doc
-            .font('Helvetica-Bold')
-            .fontSize(9.5)
-            .fillColor(COLORS.dark)
-            .text(finding.type, contentX, doc.y, { width: contentWidth });
-        doc.moveDown(0.2);
-    }
-
-    if (finding.description) {
-        ensureSpace(doc, 45);
-        doc
-            .font('Helvetica')
-            .fontSize(9)
-            .fillColor(COLORS.muted)
-            .text(finding.description, { width: contentWidth, lineGap: 3 });
-        doc.moveDown(0.4);
-    }
-
-    if (finding.urls.length > 0) {
-        ensureSpace(doc, 30);
-        finding.urls.forEach((url, urlIdx) => {
-            ensureSpace(doc, 20);
-            const linkLabel =
-                finding.urls.length === 1
-                    ? 'Open in QuickBooks'
-                    : `Open QuickBooks Link ${urlIdx + 1}`;
-            doc
-                .font('Helvetica')
-                .fontSize(8.5)
-                .fillColor(COLORS.primary)
-                .text(linkLabel, contentX, doc.y, {
-                    link: url,
-                    underline: true,
-                    width: contentWidth,
-                });
-            doc.moveDown(0.2);
-        });
-    }
-
-    doc.moveDown(0.5);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -389,13 +365,19 @@ router.get(
                 },
             });
 
+            // Footer on every page (except cover handled manually)
+            doc.on('pageAdded', () => {
+                drawFooter(doc);
+            });
+
             doc.pipe(res);
 
             // Cover page
             drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
 
-            // Findings page
-            addPage(doc);
+            // Start findings on a new page
+            doc.addPage();
+
             doc
                 .font('Helvetica-Bold')
                 .fontSize(16)
@@ -417,17 +399,8 @@ router.get(
                     .text('No issues detected. Your financial hygiene looks great.');
             } else {
                 uniqueIssues.forEach((issue: any, index: number) => {
-                    drawFindingCard(doc, issue, index);
+                    drawFinding(doc, issue, index);
                 });
-            }
-
-            // Ensure footer on all pages
-            const range = doc.bufferedPageRange();
-            for (let i = range.start; i < range.start + range.count; i++) {
-                if (i > 0) {
-                    doc.switchToPage(i);
-                    drawFooter(doc);
-                }
             }
 
             doc.end();
