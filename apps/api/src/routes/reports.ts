@@ -3,9 +3,10 @@ import { prisma } from '@qb-health/financial-model';
 import { AppError } from '../middleware/error-handler';
 import PDFDocument from 'pdfkit';
 import { parseMarkdownFindings, DiagnosticFinding } from '../utils/report-parser';
-import { AuthRequest } from '../middleware/auth'; // adjust path as needed
+import { authMiddleware, AuthRequest } from '../middleware/auth'; // adjust path as needed
 
 const router: Router = Router();
+router.use(authMiddleware);
 
 // Secure endpoint: uses authenticated tenant, no client-supplied connectionId
 router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -15,17 +16,17 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
             throw new AppError('Authentication required', 401);
         }
 
-        // Find the most recent active connection for this tenant
+        // Find latest active connection for this tenant
         const connection = await prisma.qbConnection.findFirst({
             where: {
                 tenantId,
                 subscriptionStatus: 'ACTIVE'
             },
-            orderBy: { lastSyncAt: 'desc' } // or createdAt if lastSyncAt not present
+            orderBy: { lastSyncAt: 'desc' }
         });
 
         if (!connection) {
-            throw new AppError('No active connection found for this account', 404);
+            throw new AppError('No active connection found', 404);
         }
 
         const connectionId = connection.id;
