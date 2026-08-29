@@ -39,7 +39,6 @@ function getSeverityColor(severity: string): string {
 }
 
 function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
-    // 1. Save the current text cursor position so we don't break the main content flow
     const oldX = doc.x;
     const oldY = doc.y;
 
@@ -60,7 +59,7 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
         .fillColor(COLORS.subtle)
         .text('AUDIT GEN  •  QUICKBOOKS HEALTH DIAGNOSTICS', PAGE.margin, 800, {
             width: 350,
-            lineBreak: false // Prevents automatic text wrapping interference
+            lineBreak: false
         });
 
     doc
@@ -73,7 +72,6 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
 
     doc.restore();
 
-    // 2. Restore margins and the cursor position
     doc.page.margins.bottom = originalBottomMargin;
     doc.x = oldX;
     doc.y = oldY;
@@ -82,7 +80,6 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
     if (doc.y + requiredHeight > PAGE.bottom) {
         doc.addPage();
-        // Footer is drawn automatically by pageAdded event
     }
 }
 
@@ -93,23 +90,19 @@ function drawCoverPage(
     checks: any[],
     uniqueIssues: any[]
 ) {
-    // Brand
     doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('AUDIT GEN');
     doc.font('Helvetica').fontSize(9).fillColor(COLORS.subtle).text('QuickBooks Health Diagnostics');
     doc.moveDown(3);
 
-    // Title
     doc.font('Helvetica-Bold').fontSize(24).fillColor(COLORS.ink).text('Financial Health Audit Report');
     doc.moveDown(0.5);
     doc.font('Helvetica').fontSize(11).fillColor(COLORS.muted).text(`Generated ${new Date().toISOString().split('T')[0]}`);
     doc.moveDown(2);
 
-    // Simple metrics table
     const tableTop = doc.y;
     const colWidths = [PAGE.contentWidth * 0.4, PAGE.contentWidth * 0.3, PAGE.contentWidth * 0.3];
     const rowHeight = 30;
 
-    // Header row
     doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.white);
     doc.rect(PAGE.margin, tableTop, PAGE.contentWidth, rowHeight).fill(COLORS.primary);
     doc.fillColor(COLORS.white)
@@ -138,7 +131,6 @@ function drawCoverPage(
 
     doc.moveDown(2);
 
-    // Executive summary
     doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.ink).text('Executive Summary');
     doc.moveDown(0.4);
     const score = diagnosticRun.healthScore;
@@ -161,11 +153,21 @@ function drawCoverPage(
 function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
     ensureSpace(doc, 60);
 
-    // Rule name and severity on same line
+    const startY = doc.y;
+
+    // Rule name (Left aligned)
     doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.ink)
-        .text(`${index + 1}. ${issue.ruleName}`, PAGE.margin, doc.y, { width: PAGE.contentWidth - 80 });
+        .text(`${index + 1}. ${issue.ruleName}`, PAGE.margin, startY, { width: PAGE.contentWidth - 80 });
+    const nameEndY = doc.y;
+
+    // Severity (Right aligned on same line)
     doc.font('Helvetica-Bold').fontSize(9).fillColor(getSeverityColor(issue.severity))
-        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 70, doc.y - 14, { width: 70, align: 'right' });
+        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 70, startY, { width: 70, align: 'right' });
+    const severityEndY = doc.y;
+
+    // FIX: Force cursor back to left margin and below the header height
+    doc.x = PAGE.margin;
+    doc.y = Math.max(nameEndY, severityEndY);
     doc.moveDown(0.5);
 
     const parsed = parseMarkdownFindings(issue.message);
@@ -174,14 +176,16 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
             // Type
             if (finding.type) {
                 ensureSpace(doc, 20);
-                doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.dark).text(finding.type, { width: PAGE.contentWidth });
+                doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.dark)
+                    .text(finding.type, PAGE.margin, doc.y, { width: PAGE.contentWidth });
                 doc.moveDown(0.2);
             }
 
             // Description
             if (finding.description) {
                 ensureSpace(doc, 30);
-                doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(finding.description, { width: PAGE.contentWidth, lineGap: 3 });
+                doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted)
+                    .text(finding.description, PAGE.margin, doc.y, { width: PAGE.contentWidth, lineGap: 3 });
                 doc.moveDown(0.3);
             }
 
@@ -191,11 +195,12 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
                 finding.urls.forEach((url, urlIdx) => {
                     ensureSpace(doc, 20);
                     const linkLabel = finding.urls.length === 1 ? 'Open in QuickBooks' : `Open QuickBooks Link ${urlIdx + 1}`;
-                    doc.font('Helvetica').fontSize(8.5).fillColor(COLORS.primary).text(linkLabel, {
-                        link: url,
-                        underline: true,
-                        width: PAGE.contentWidth,
-                    });
+                    doc.font('Helvetica').fontSize(8.5).fillColor(COLORS.primary)
+                        .text(linkLabel, PAGE.margin, doc.y, {
+                            link: url,
+                            underline: true,
+                            width: PAGE.contentWidth,
+                        });
                     doc.moveDown(0.2);
                 });
             }
@@ -204,7 +209,8 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
     } else {
         // Fallback: raw message
         ensureSpace(doc, 30);
-        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(issue.message, { width: PAGE.contentWidth, lineGap: 3 });
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted)
+            .text(issue.message, PAGE.margin, doc.y, { width: PAGE.contentWidth, lineGap: 3 });
         doc.moveDown(0.5);
     }
 
@@ -251,7 +257,6 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
             margins: { top: PAGE.margin, left: PAGE.margin, right: PAGE.margin, bottom: 30 }
         });
 
-        // Track page numbers cleanly
         let pageCount = 1;
         doc.on('pageAdded', () => {
             pageCount++;
@@ -260,20 +265,18 @@ router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) =
 
         doc.pipe(res);
 
-        // Draw cover page and its footer explicitly 
         drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
         drawFooter(doc, 1);
 
-        // Move to findings
         doc.addPage();
 
-        doc.font('Helvetica-Bold').fontSize(16).fillColor(COLORS.ink).text('Diagnostic Findings');
+        doc.font('Helvetica-Bold').fontSize(16).fillColor(COLORS.ink).text('Diagnostic Findings', PAGE.margin, doc.y);
         doc.moveDown(0.4);
-        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('Rule violations identified during the latest QuickBooks health diagnostic.');
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('Rule violations identified during the latest QuickBooks health diagnostic.', PAGE.margin, doc.y);
         doc.moveDown(1.5);
 
         if (uniqueIssues.length === 0) {
-            doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text('No issues detected. Your financial hygiene looks great.');
+            doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text('No issues detected. Your financial hygiene looks great.', PAGE.margin, doc.y);
         } else {
             uniqueIssues.forEach((issue: any, index: number) => {
                 drawFinding(doc, issue, index);
