@@ -14,14 +14,12 @@ const COLORS = {
     muted: '#666666',
     subtle: '#999999',
     border: '#cccccc',
-    background: '#ffffff',
-    lightBg: '#f7f7f7',
-    white: '#ffffff',
     primary: '#1a4d8f',
     success: '#2e7d32',
     warning: '#b26a00',
     danger: '#b71c1c',
-    info: '#0047ab',
+    lightBg: '#f7f7f7',
+    white: '#ffffff',
 };
 
 const PAGE = {
@@ -32,17 +30,16 @@ const PAGE = {
     bottom: 800,
 };
 
-let currentPage = 1; // Global page counter
-
 function getSeverityColor(severity: string): string {
     const s = severity.toUpperCase();
     if (s.includes('CRITICAL') || s.includes('ERROR')) return COLORS.danger;
     if (s.includes('WARNING') || s.includes('WARN')) return COLORS.warning;
-    if (s.includes('INFO')) return COLORS.info;
+    if (s.includes('INFO')) return COLORS.primary;
     return COLORS.muted;
 }
 
-function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
+function drawFooter(doc: PDFKit.PDFDocument) {
+    const pageNumber = doc.page; // current page number (1-based)
     doc.save();
     doc
         .strokeColor(COLORS.border)
@@ -69,7 +66,7 @@ function drawFooter(doc: PDFKit.PDFDocument, pageNumber: number) {
 function ensureSpace(doc: PDFKit.PDFDocument, requiredHeight: number) {
     if (doc.y + requiredHeight > PAGE.bottom) {
         doc.addPage();
-        // pageAdded event will draw footer and increment page number
+        // Footer is drawn automatically by pageAdded event
     }
 }
 
@@ -80,54 +77,26 @@ function drawCoverPage(
     checks: any[],
     uniqueIssues: any[]
 ) {
-    // Top branding
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .fillColor(COLORS.primary)
-        .text('AUDIT GEN');
-    doc
-        .font('Helvetica')
-        .fontSize(9)
-        .fillColor(COLORS.subtle)
-        .text('QuickBooks Health Diagnostics');
+    // Brand
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.primary).text('AUDIT GEN');
+    doc.font('Helvetica').fontSize(9).fillColor(COLORS.subtle).text('QuickBooks Health Diagnostics');
     doc.moveDown(3);
 
     // Title
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(24)
-        .fillColor(COLORS.ink)
-        .text('Financial Health Audit Report', { width: PAGE.contentWidth });
+    doc.font('Helvetica-Bold').fontSize(24).fillColor(COLORS.ink).text('Financial Health Audit Report');
     doc.moveDown(0.5);
-    doc
-        .font('Helvetica')
-        .fontSize(11)
-        .fillColor(COLORS.muted)
-        .text(`Generated ${new Date().toISOString().split('T')[0]}`, {
-            width: PAGE.contentWidth,
-        });
+    doc.font('Helvetica').fontSize(11).fillColor(COLORS.muted).text(`Generated ${new Date().toISOString().split('T')[0]}`);
     doc.moveDown(2);
 
-    // Summary metrics table
+    // Simple metrics table
     const tableTop = doc.y;
-    const colWidths = [
-        PAGE.contentWidth * 0.4,
-        PAGE.contentWidth * 0.3,
-        PAGE.contentWidth * 0.3
-    ];
+    const colWidths = [PAGE.contentWidth * 0.4, PAGE.contentWidth * 0.3, PAGE.contentWidth * 0.3];
     const rowHeight = 30;
 
-    // Table header
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(9)
-        .fillColor(COLORS.white);
-    doc
-        .rect(PAGE.margin, tableTop, PAGE.contentWidth, rowHeight)
-        .fill(COLORS.primary);
-    doc
-        .fillColor(COLORS.white)
+    // Header row
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.white);
+    doc.rect(PAGE.margin, tableTop, PAGE.contentWidth, rowHeight).fill(COLORS.primary);
+    doc.fillColor(COLORS.white)
         .text('Metric', PAGE.margin + 8, tableTop + 10, { width: colWidths[0] - 16 })
         .text('Value', PAGE.margin + colWidths[0] + 8, tableTop + 10, { width: colWidths[1] - 16 })
         .text('Details', PAGE.margin + colWidths[0] + colWidths[1] + 8, tableTop + 10, { width: colWidths[2] - 16 });
@@ -144,10 +113,7 @@ function drawCoverPage(
         if (idx % 2 === 0) {
             doc.rect(PAGE.margin, y, PAGE.contentWidth, rowHeight).fill(COLORS.lightBg);
         }
-        doc
-            .font('Helvetica')
-            .fontSize(9)
-            .fillColor(COLORS.ink);
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
         doc.text(row[0], PAGE.margin + 8, y + 10, { width: colWidths[0] - 16 });
         doc.text(String(row[1]), PAGE.margin + colWidths[0] + 8, y + 10, { width: colWidths[1] - 16 });
         doc.text(row[2], PAGE.margin + colWidths[0] + colWidths[1] + 8, y + 10, { width: colWidths[2] - 16 });
@@ -157,13 +123,8 @@ function drawCoverPage(
     doc.moveDown(2);
 
     // Executive summary
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .fillColor(COLORS.ink)
-        .text('Executive Summary');
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(COLORS.ink).text('Executive Summary');
     doc.moveDown(0.4);
-
     const score = diagnosticRun.healthScore;
     let assessment = 'The diagnostic identified areas requiring review within the connected QuickBooks data.';
     if (score !== null && score !== undefined) {
@@ -172,46 +133,26 @@ function drawCoverPage(
         else if (score >= 60) assessment = 'The diagnostic identified several areas that require attention and follow-up.';
         else assessment = 'The diagnostic identified significant issues that should be investigated and resolved as a priority.';
     }
-    doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor(COLORS.muted)
-        .text(assessment, { width: PAGE.contentWidth, lineGap: 4 });
-
+    doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text(assessment, { width: PAGE.contentWidth, lineGap: 4 });
     doc.moveDown(2);
-    doc
-        .font('Helvetica')
-        .fontSize(8)
-        .fillColor(COLORS.subtle)
+    doc.font('Helvetica').fontSize(8).fillColor(COLORS.subtle)
         .text('This report is generated from the latest completed diagnostic run and is intended to assist with accounting review and remediation.', {
             width: PAGE.contentWidth,
             lineGap: 3,
         });
 
-    // Draw footer on cover page (page 1)
-    drawFooter(doc, 1);
+    // Footer on cover page will be drawn by pageAdded event? No, pageAdded may not fire for first page. We'll draw manually.
+    drawFooter(doc);
 }
 
 function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
-    ensureSpace(doc, 60); // Reserve space for header at least
+    ensureSpace(doc, 60);
 
-    // Header: rule name and severity on same line
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(11)
-        .fillColor(COLORS.ink)
-        .text(`${index + 1}. ${issue.ruleName}`, PAGE.margin, doc.y, {
-            width: PAGE.contentWidth - 80,
-        });
-    doc
-        .font('Helvetica-Bold')
-        .fontSize(9)
-        .fillColor(getSeverityColor(issue.severity))
-        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 70, doc.y - 14, {
-            width: 70,
-            align: 'right',
-        });
-
+    // Rule name and severity on same line
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.ink)
+        .text(`${index + 1}. ${issue.ruleName}`, PAGE.margin, doc.y, { width: PAGE.contentWidth - 80 });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(getSeverityColor(issue.severity))
+        .text(issue.severity.toUpperCase(), PAGE.margin + PAGE.contentWidth - 70, doc.y - 14, { width: 70, align: 'right' });
     doc.moveDown(0.5);
 
     const parsed = parseMarkdownFindings(issue.message);
@@ -220,22 +161,14 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
             // Type
             if (finding.type) {
                 ensureSpace(doc, 20);
-                doc
-                    .font('Helvetica-Bold')
-                    .fontSize(9.5)
-                    .fillColor(COLORS.dark)
-                    .text(finding.type, { width: PAGE.contentWidth });
+                doc.font('Helvetica-Bold').fontSize(9.5).fillColor(COLORS.dark).text(finding.type, { width: PAGE.contentWidth });
                 doc.moveDown(0.2);
             }
 
             // Description
             if (finding.description) {
                 ensureSpace(doc, 30);
-                doc
-                    .font('Helvetica')
-                    .fontSize(9)
-                    .fillColor(COLORS.muted)
-                    .text(finding.description, { width: PAGE.contentWidth, lineGap: 3 });
+                doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(finding.description, { width: PAGE.contentWidth, lineGap: 3 });
                 doc.moveDown(0.3);
             }
 
@@ -244,150 +177,95 @@ function drawFinding(doc: PDFKit.PDFDocument, issue: any, index: number) {
                 ensureSpace(doc, 25);
                 finding.urls.forEach((url, urlIdx) => {
                     ensureSpace(doc, 20);
-                    const linkLabel =
-                        finding.urls.length === 1
-                            ? 'Open in QuickBooks'
-                            : `Open QuickBooks Link ${urlIdx + 1}`;
-                    doc
-                        .font('Helvetica')
-                        .fontSize(8.5)
-                        .fillColor(COLORS.primary)
-                        .text(linkLabel, {
-                            link: url,
-                            underline: true,
-                            width: PAGE.contentWidth,
-                        });
+                    const linkLabel = finding.urls.length === 1 ? 'Open in QuickBooks' : `Open QuickBooks Link ${urlIdx + 1}`;
+                    doc.font('Helvetica').fontSize(8.5).fillColor(COLORS.primary).text(linkLabel, {
+                        link: url,
+                        underline: true,
+                        width: PAGE.contentWidth,
+                    });
                     doc.moveDown(0.2);
                 });
             }
-
             doc.moveDown(0.5);
         });
     } else {
         // Fallback: raw message
         ensureSpace(doc, 30);
-        doc
-            .font('Helvetica')
-            .fontSize(9)
-            .fillColor(COLORS.muted)
-            .text(issue.message, { width: PAGE.contentWidth, lineGap: 3 });
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text(issue.message, { width: PAGE.contentWidth, lineGap: 3 });
         doc.moveDown(0.5);
     }
 
-    // Horizontal rule after each finding
-    doc
-        .strokeColor(COLORS.border)
-        .lineWidth(0.5)
+    // Separator line
+    doc.strokeColor(COLORS.border).lineWidth(0.5)
         .moveTo(PAGE.margin, doc.y)
         .lineTo(PAGE.width - PAGE.margin, doc.y)
         .stroke();
     doc.moveDown(1);
 }
 
-router.get(
-    '/pdf',
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-        try {
-            const tenantId = req.tenantId;
-            if (!tenantId) {
-                throw new AppError('Authentication required', 401);
-            }
+router.get('/pdf', async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const tenantId = req.tenantId;
+        if (!tenantId) throw new AppError('Authentication required', 401);
 
-            const connection = await prisma.qbConnection.findFirst({
-                where: { tenantId, subscriptionStatus: 'ACTIVE' },
-                orderBy: { lastSyncAt: 'desc' },
-            });
+        const connection = await prisma.qbConnection.findFirst({
+            where: { tenantId, subscriptionStatus: 'ACTIVE' },
+            orderBy: { lastSyncAt: 'desc' },
+        });
+        if (!connection) throw new AppError('No active connection found', 404);
 
-            if (!connection) {
-                throw new AppError('No active connection found', 404);
-            }
+        const connectionId = connection.id;
+        const diagnosticRun = await prisma.diagnosticRun.findFirst({
+            where: { connectionId },
+            orderBy: { runAt: 'desc' },
+        });
+        if (!diagnosticRun) throw new AppError('No diagnostic runs found for this connection', 404);
 
-            const connectionId = connection.id;
+        const issues = await prisma.issue.findMany({ where: { connectionId } });
+        const checks = await prisma.diagnosticCheck.findMany({ where: { runId: diagnosticRun.id } });
 
-            const diagnosticRun = await prisma.diagnosticRun.findFirst({
-                where: { connectionId },
-                orderBy: { runAt: 'desc' },
-            });
-
-            if (!diagnosticRun) {
-                throw new AppError('No diagnostic runs found for this connection', 404);
-            }
-
-            const issues = await prisma.issue.findMany({ where: { connectionId } });
-            const checks = await prisma.diagnosticCheck.findMany({
-                where: { runId: diagnosticRun.id },
-            });
-
-            const uniqueIssuesMap = new Map<string, typeof issues[0]>();
-            for (const issue of issues) {
-                if (!uniqueIssuesMap.has(issue.ruleId)) {
-                    uniqueIssuesMap.set(issue.ruleId, issue);
-                }
-            }
-            const uniqueIssues = Array.from(uniqueIssuesMap.values());
-
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader(
-                'Content-Disposition',
-                `attachment; filename="qb-health-report-${connectionId.slice(0, 8)}.pdf"`
-            );
-
-            const doc = new PDFDocument({
-                margin: PAGE.margin,
-                size: 'A4',
-                info: {
-                    Title: 'Audit Gen — QuickBooks Financial Health Audit',
-                    Author: 'Audit Gen',
-                    Subject: 'QuickBooks Financial Health Diagnostic Report',
-                    Creator: 'Audit Gen',
-                },
-            });
-
-            // Reset page counter and set up pageAdded event
-            currentPage = 1;
-            doc.on('pageAdded', () => {
-                currentPage++;
-                drawFooter(doc, currentPage);
-            });
-
-            doc.pipe(res);
-
-            // Cover page (page 1) - footer drawn manually inside drawCoverPage
-            drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
-
-            // Start findings on a new page (page 2)
-            doc.addPage();
-
-            doc
-                .font('Helvetica-Bold')
-                .fontSize(16)
-                .fillColor(COLORS.ink)
-                .text('Diagnostic Findings');
-            doc.moveDown(0.4);
-            doc
-                .font('Helvetica')
-                .fontSize(9)
-                .fillColor(COLORS.muted)
-                .text('Rule violations identified during the latest QuickBooks health diagnostic.');
-            doc.moveDown(1.5);
-
-            if (uniqueIssues.length === 0) {
-                doc
-                    .font('Helvetica')
-                    .fontSize(10)
-                    .fillColor(COLORS.muted)
-                    .text('No issues detected. Your financial hygiene looks great.');
-            } else {
-                uniqueIssues.forEach((issue: any, index: number) => {
-                    drawFinding(doc, issue, index);
-                });
-            }
-
-            doc.end();
-        } catch (error) {
-            next(error);
+        const uniqueIssuesMap = new Map<string, typeof issues[0]>();
+        for (const issue of issues) {
+            if (!uniqueIssuesMap.has(issue.ruleId)) uniqueIssuesMap.set(issue.ruleId, issue);
         }
+        const uniqueIssues = Array.from(uniqueIssuesMap.values());
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="qb-health-report-${connectionId.slice(0, 8)}.pdf"`);
+
+        const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4' });
+
+        // Draw footer on every new page after the first
+        doc.on('pageAdded', () => {
+            drawFooter(doc);
+        });
+
+        doc.pipe(res);
+
+        // Cover page (page 1) – manually draw footer after content
+        drawCoverPage(doc, diagnosticRun, issues, checks, uniqueIssues);
+        drawFooter(doc); // ensure footer on cover page
+
+        // Start findings on new page
+        doc.addPage();
+
+        doc.font('Helvetica-Bold').fontSize(16).fillColor(COLORS.ink).text('Diagnostic Findings');
+        doc.moveDown(0.4);
+        doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted).text('Rule violations identified during the latest QuickBooks health diagnostic.');
+        doc.moveDown(1.5);
+
+        if (uniqueIssues.length === 0) {
+            doc.font('Helvetica').fontSize(10).fillColor(COLORS.muted).text('No issues detected. Your financial hygiene looks great.');
+        } else {
+            uniqueIssues.forEach((issue: any, index: number) => {
+                drawFinding(doc, issue, index);
+            });
+        }
+
+        doc.end();
+    } catch (error) {
+        next(error);
     }
-);
+});
 
 export default router;
