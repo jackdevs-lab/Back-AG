@@ -32,10 +32,6 @@
         "tsx": "^4.21.0"
     },
     "pnpm": {
-        "overrides": {
-            "lodash": "4.18.1",
-            "brace-expansion": "2.1.4"
-        },
         "ignoredBuiltDependencies": [
             "@prisma/client",
             "@prisma/engines",
@@ -43,5 +39,9 @@
             "msgpackr-extract",
             "prisma"
         ]
+    },
+    "overrides": {
+        "lodash": "4.18.1",
+        "brace-expansion": "2.1.4"
     }
 }
