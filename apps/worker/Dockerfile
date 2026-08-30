@@ -4,8 +4,7 @@ RUN apk add --no-cache openssl
 
 WORKDIR /app
 
-RUN npm install -g pnpm
-
+RUN npm install -g pnpm@9.15.9
 COPY . .
 
 RUN pnpm install --frozen-lockfile --config.ignore-scripts=false
