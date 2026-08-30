@@ -8,8 +8,7 @@ RUN npm install -g pnpm
 
 COPY . .
 
-RUN pnpm install --frozen-lockfile
-
-RUN pnpm db:generate
+RUN pnpm install --frozen-lockfile --config.ignore-scripts=false
+RUN pnpm --filter @qb-health/financial-model db:generate
 RUN pnpm --filter @qb-health/worker... build
 CMD ["pnpm", "--filter", "@qb-health/worker", "start"]
