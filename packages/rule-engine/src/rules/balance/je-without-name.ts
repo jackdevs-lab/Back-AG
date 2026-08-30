@@ -26,7 +26,8 @@ export class JEWithoutNameRule implements IRule {
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
         return new PipelineRunner(ctx, this.id, this.name, this.version)
             .withData(async (repo, realmId) => {
-                const config = await fetchRuleConfig(repo, realmId, this.id);
+                const config = await fetchRuleConfig(repo, ctx.tenantId, realmId, this.id);
+
                 const syncLogs = await fetchSyncLogs(repo, { realmId, entityTypes: ['JournalEntry'] });
                 const journalEntries = await fetchJournalEntries(repo, realmId);
                 return { config, syncLogs, journalEntries };

@@ -4,6 +4,8 @@ import { AppError } from '../middleware/error-handler';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { syncQueue } from '../queue';
 import { decrypt, logger } from '@qb-health/utils';
+import { oauthService } from '@qb-health/qb-client';
+import { deleteConnectionData } from '../services/connection-cleanup';
 const router: Router = Router();
 const QB_BASE_URL = process.env.QB_ENVIRONMENT === 'sandbox'
     ? 'https://sandbox-quickbooks.api.intuit.com'
@@ -12,6 +14,15 @@ const QB_BASE_URL = process.env.QB_ENVIRONMENT === 'sandbox'
 router.get('/', async (req: AuthRequest, res: Response, next) => {
     try {
         const { tenantId } = req;
+
+        // 1. Separate the return keyword to return void
+        if (!tenantId) {
+            res.status(401).json({
+                success: false,
+                message: 'Unauthorized'
+            });
+            return;
+        }
 
         const connections = await prisma.qbConnection.findMany({
             where: { tenantId },
@@ -29,11 +40,44 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
             }
         });
 
+        const activeConnections = [];
+
+        for (const connection of connections) {
+            try {
+                // Ensure tenantId is passed as a string
+                await oauthService.refreshIfNeeded(connection.realmId, tenantId as string);
+
+                activeConnections.push(connection);
+            } catch (error: any) {
+                const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
+
+                if (isRevoked) {
+                    logger.warn('Connection verified as revoked on API fetch. Executing DB purge...', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        connectionId: connection.id
+                    });
+
+                    await deleteConnectionData(connection.id, tenantId as string);
+                } else {
+                    logger.error('Non-revocation error during connection health check', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        error: error?.message || error
+                    });
+
+                    activeConnections.push(connection);
+                }
+            }
+        }
+
+        // 2. Standard response (implicitly returns void)
         res.json({
             success: true,
-            data: connections
+            data: activeConnections
         });
     } catch (error) {
+        // 3. Error passing (implicitly returns void)
         next(error);
     }
 });
@@ -132,47 +176,228 @@ router.get('/:id/overview', async (req: AuthRequest, res: Response, next) => {
 router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
     try {
         const tenantId = req.tenantId;
+        const { realmId } = req.body;
+
+        if (!tenantId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Unauthorized',
+            });
+        }
+
+        // 1. Fetch connection(s). If realmId is passed, match specifically; 
+        // otherwise, query all active connections for this tenant.
         const connections = await prisma.qbConnection.findMany({
-            where: { tenantId }
+            where: {
+                tenantId,
+                ...(realmId && typeof realmId === 'string' ? { realmId } : {}),
+            },
+            select: {
+                id: true,
+                tenantId: true,
+                realmId: true,
+            },
         });
 
-        // Dynamically set the Intuit API URL based on the environment
-        const QB_BASE_URL = process.env.QB_ENVIRONMENT?.toLowerCase() === 'sandbox'
-            ? 'https://sandbox-quickbooks.api.intuit.com'
-            : 'https://quickbooks.api.intuit.com';
+        if (!connections || connections.length === 0) {
+            if (realmId) {
+                throw new AppError('Connection not found', 404);
+            }
+            return res.status(200).json({
+                success: true,
+                connected: false,
+                reason: 'NO_CONNECTIONS_FOUND',
+                message: 'No active QuickBooks connections found',
+            });
+        }
 
-        for (const conn of connections) {
+        const environment = process.env.QB_ENVIRONMENT?.toLowerCase();
+        if (environment !== 'sandbox' && environment !== 'production') {
+            logger.error('Invalid QB_ENVIRONMENT configuration', { environment });
+            return res.status(500).json({
+                success: false,
+                message: 'Invalid QuickBooks environment configuration',
+            });
+        }
+
+        const qbBaseUrl =
+            environment === 'sandbox'
+                ? 'https://sandbox-quickbooks.api.intuit.com'
+                : 'https://quickbooks.api.intuit.com';
+
+        let anyConnected = false;
+        let anyRevoked = false;
+
+        // 2. Loop over connections to check validity and purge if revoked
+        for (const connection of connections) {
+            let accessToken: string;
+
             try {
-                // Lightweight ping to QuickBooks to test if the token is still valid
-                const response = await fetch(
-                    `${QB_BASE_URL}/v3/company/${conn.realmId}/companyinfo/${conn.realmId}`,
+                accessToken = await oauthService.refreshIfNeeded(
+                    connection.realmId,
+                    tenantId
+                );
+            } catch (error: any) {
+                logger.error('Unable to obtain QuickBooks access token', {
+                    tenantId,
+                    realmId: connection.realmId,
+                    connectionId: connection.id,
+                    error: error?.message || error,
+                });
+
+                // FIX: Catch the specific Intuit revocation error right here
+                const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
+
+                if (isRevoked) {
+                    logger.warn('Refresh token rejected (invalid_grant). Executing DB purge...', {
+                        tenantId,
+                        realmId: connection.realmId,
+                        connectionId: connection.id
+                    });
+
+                    await deleteConnectionData(connection.id, tenantId as string);
+                    anyRevoked = true;
+                }
+
+                // Could not obtain access token; skip to next connection test
+                continue;
+            }
+
+            const checkQuickBooks = async (token: string) => {
+                return fetch(
+                    `${qbBaseUrl}/v3/company/${connection.realmId}/companyinfo/${connection.realmId}`,
                     {
                         headers: {
-                            'Authorization': `Bearer ${conn.accessToken}`,
-                            'Accept': 'application/json'
-                        }
+                            Authorization: `Bearer ${token}`,
+                            Accept: 'application/json',
+                        },
                     }
                 );
+            };
 
-                // If QuickBooks revokes access, it returns a 401 Unauthorized
-                if (response.status === 401) {
-                    logger.warn(`Token expired or revoked externally for realmId: ${conn.realmId}. Purging.`);
-                    await prisma.qbConnection.delete({ where: { id: conn.id } });
+            let qbResponse: globalThis.Response;
+            try {
+                qbResponse = await checkQuickBooks(accessToken);
+            } catch (error) {
+                logger.error('QuickBooks health check request failed', {
+                    tenantId,
+                    realmId: connection.realmId,
+                    connectionId: connection.id,
+                    error,
+                });
+                continue;
+            }
+
+            if (qbResponse.ok) {
+                anyConnected = true;
+                continue;
+            }
+
+            // 3. Access token rejected -> Attempt forced refresh
+            if (qbResponse.status === 401) {
+                logger.warn('QuickBooks access token rejected; attempting forced refresh', {
+                    tenantId,
+                    realmId: connection.realmId,
+                    connectionId: connection.id,
+                });
+
+                try {
+                    const fullConnection = await oauthService.getConnection(
+                        connection.realmId,
+                        tenantId
+                    );
+
+                    const refreshedTokenData =
+                        await oauthService.refreshAccessToken(
+                            fullConnection.refreshToken
+                        );
+
+                    await oauthService.saveConnection(
+                        tenantId,
+                        connection.realmId,
+                        refreshedTokenData
+                    );
+
+                    const retryResponse = await checkQuickBooks(
+                        refreshedTokenData.access_token
+                    );
+
+                    if (retryResponse.ok) {
+                        logger.info(
+                            'QuickBooks authorization restored after token refresh',
+                            { tenantId, realmId: connection.realmId }
+                        );
+                        anyConnected = true;
+                        continue;
+                    }
+
+                    if (retryResponse.status === 401) {
+                        logger.warn(
+                            'QuickBooks rejected both original and refreshed authorization. Executing DB purge...',
+                            { tenantId, realmId: connection.realmId }
+                        );
+
+                        // DEFINITIVE REVOCATION PROOF -> PURGE DB
+                        await deleteConnectionData(connection.id, tenantId as string);
+                        anyRevoked = true;
+                    }
+                } catch (refreshError) {
+                    logger.warn(
+                        'QuickBooks refresh failed after authorization rejection. Executing DB purge...',
+                        {
+                            tenantId,
+                            realmId: connection.realmId,
+                            error: refreshError,
+                        }
+                    );
+
+                    // DEFINITIVE REVOCATION PROOF -> PURGE DB
+                    await deleteConnectionData(connection.id, tenantId as string);
+                    anyRevoked = true;
                 }
-            } catch (apiError) {
-                logger.error(`Failed to verify QB connection health for realmId: ${conn.realmId}`, apiError);
             }
         }
 
-        return res.status(200).json({ success: true, message: 'Sync check complete' });
+        if (anyConnected) {
+            return res.status(200).json({
+                success: true,
+                connected: true,
+                reason: 'AUTHORIZED',
+                message: 'QuickBooks connection is active',
+            });
+        }
+
+        if (anyRevoked) {
+            return res.status(200).json({
+                success: true,
+                connected: false,
+                reason: 'AUTHORIZATION_REVOKED',
+                message: 'QuickBooks authorization has been revoked and purged',
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            connected: false,
+            reason: 'QUICKBOOKS_VERIFICATION_FAILED',
+            message: 'QuickBooks connection could not be verified',
+        });
     } catch (error) {
         logger.error('Error in verify-and-sync route', error);
-        return res.status(500).json({ error: 'Internal Server Error' });
+
+        if (error instanceof AppError) {
+            return res.status(error.statusCode).json({
+                success: false,
+                message: error.message,
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Internal Server Error',
+        });
     }
 });
-// Inside apps/api/src/routes/connections.ts (GET /:id/status route)
-
-
 
 // DELETE connection
 // DELETE connection
@@ -189,81 +414,82 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
                 id: true,
                 tenantId: true,
                 refreshToken: true,
-                realmId: true // Added realmId for the sweep
-            }
+                realmId: true,
+            },
         });
 
         if (!connection || connection.tenantId !== tenantId) {
             throw new AppError('Connection not found', 404);
         }
 
+        // Revoke the QuickBooks refresh token
         try {
             const rawEncryptedToken = connection.refreshToken?.trim();
             const clientId = process.env.QB_CLIENT_ID?.trim();
             const clientSecret = process.env.QB_CLIENT_SECRET?.trim();
 
             if (rawEncryptedToken && clientId && clientSecret) {
-                // 1. DECRYPT the stored refresh token first
                 const decryptedRefreshToken = decrypt(rawEncryptedToken).trim();
 
-                const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-                const revokeUrl = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
+                const authHeader = Buffer
+                    .from(`${clientId}:${clientSecret}`)
+                    .toString('base64');
 
-                // 2. Pass the raw decrypted token to Intuit as JSON
-                const revokeResponse = await fetch(revokeUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        'Authorization': `Basic ${authHeader}`
-                    },
-                    body: JSON.stringify({
-                        token: decryptedRefreshToken
-                    })
-                });
+                const revokeResponse = await fetch(
+                    'https://developer.api.intuit.com/v2/oauth2/tokens/revoke',
+                    {
+                        method: 'POST',
+                        headers: {
+                            Accept: 'application/json',
+                            'Content-Type': 'application/json',
+                            Authorization: `Basic ${authHeader}`,
+                        },
+                        body: JSON.stringify({
+                            token: decryptedRefreshToken,
+                        }),
+                    }
+                );
 
                 if (!revokeResponse.ok) {
                     const errorText = await revokeResponse.text();
-                    console.warn(
-                        `Intuit Token Revocation Failed (HTTP ${revokeResponse.status}):`,
-                        errorText || '<Empty Body Received from Gateway>'
-                    );
-                } else {
-                    console.log(`Successfully revoked Intuit token for connection ${id}`);
+
+                    logger.warn('Intuit token revocation failed', {
+                        connectionId: id,
+                        status: revokeResponse.status,
+                        error: errorText || '<empty response>',
+                    });
                 }
             } else {
-                console.warn('Skipping Intuit revocation: Missing client credentials or refresh token.');
+                logger.warn('Skipping Intuit token revocation', {
+                    connectionId: id,
+                    reason: 'Missing refresh token or Intuit client credentials',
+                });
             }
         } catch (revokeError) {
-            console.warn('Error during Intuit token decryption or revocation:', revokeError);
+            logger.warn('Error during Intuit token revocation', {
+                connectionId: id,
+                error: revokeError,
+            });
+
+            // Continue with local cleanup even if Intuit revocation fails.
         }
 
-        // 3. Programmatic Sweep: Delete local connection record and all associated financial orphans
-        const tables = [
-            prisma.ruleFinding,
-            prisma.account,
-            prisma.transaction,
-            prisma.customer,
-            prisma.vendor,
-            prisma.bankTransaction,
-            prisma.reconciliation,
-            prisma.ruleConfig
-        ];
+        // Centralized local cleanup
+        const deleted = await deleteConnectionData(id, tenantId);
 
-        await prisma.$transaction([
-            ...tables.map(table => (table as any).deleteMany({ where: { realmId: connection.realmId } })),
-            prisma.qbConnection.delete({ where: { id } })
-        ]);
+        if (!deleted) {
+            throw new AppError('Connection not found', 404);
+        }
 
-        res.json({
+        return res.status(200).json({
             success: true,
-            message: 'Connection and associated data deleted'
+            message: 'Connection and associated data deleted',
         });
     } catch (error) {
-        next(error);
+        return next(error);
     }
 });
-// PATCH connection
+
 router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;

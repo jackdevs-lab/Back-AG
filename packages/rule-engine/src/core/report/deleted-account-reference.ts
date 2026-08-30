@@ -28,7 +28,7 @@ export function formatReport(
             id: f.id,
             label: f.label,
             details: `Transaction on ${f.date ? new Date(f.date).toLocaleDateString() : 'N/A'} references an account ID in its ${f.metadata?.detailType || 'details'} which no longer exists in the Chart of Accounts.`,
-            deepLink: `https://app.qbo.intuit.com/app/${qboPath}?realmId=${realmId}&txnId=${f.id}`
+            deepLink: `https://sandbox.qbo.intuit.com/app/${qboPath}?realmId=${realmId}&txnId=${f.id}`
         };
     });
 

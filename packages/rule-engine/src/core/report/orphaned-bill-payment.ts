@@ -22,7 +22,7 @@ export function formatReport(
                 id: f.id,
                 label: `${f.label} - ${f.currency} ${Number(f.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                 details: `Payment references missing Bill IDs: ${missingIdsStr}. This occurs when a bill is deleted but the payment remains. Fingerprint: ${fingerprintShort}`,
-                deepLink: `https://app.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.id}`
+                deepLink: `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.id}`
             };
         }),
         recommendation: 'These payments are linked to non-existent bills. Re-apply these payments to the correct bills or delete them if redundant.',

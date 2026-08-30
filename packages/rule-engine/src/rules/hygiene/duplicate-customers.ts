@@ -31,7 +31,7 @@ export class DuplicateCustomersRule implements IRule {
             id: group.map((c: any) => c.qbId).join(','),
             label: `"${group[0].name}" — ${group.length} records`,
             details: `Found ${group.length} customers with the same name. IDs: ${group.map((c: any) => c.qbId).join(', ')}.`,
-            deepLink: group.map((c: any) => `https://app.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${c.qbId}`)
+            deepLink: group.map((c: any) => `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${c.qbId}`)
         }));
 
         const report = formatStandardReport({

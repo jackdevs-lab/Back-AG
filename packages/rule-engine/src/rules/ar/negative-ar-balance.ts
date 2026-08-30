@@ -92,7 +92,7 @@ export class NegativeARBalanceRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.name} - $${f.metadata.balance.toFixed(2)}`,
                     details: `Customer has a negative AR balance of $${f.metadata.balance.toFixed(2)}. This usually indicates unapplied payments, overpayments, or missing invoices.`,
-                    deepLink: `https://app.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
+                    deepLink: `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
                 }));
 
                 const reportString = formatStandardReport({

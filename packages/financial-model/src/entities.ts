@@ -15,7 +15,7 @@ export type IssueId = Brand<string, 'IssueId'>;
 export type SyncLogId = Brand<string, 'SyncLogId'>;
 export type BankTransactionId = Brand<string, 'BankTransactionId'>;
 export type ReconciliationId = Brand<string, 'ReconciliationId'>;
-export type RuleConfigId = Brand<string, 'RuleConfigId'>;
+export type RuleConfigId = Brand<string, 'RuleConfigId'>; // Note: RuleConfig now uses composite key, but this ID may be unused or derived
 
 // Logical/Foreign Keys
 export type RealmId = Brand<string, 'RealmId'>; // QuickBooks company ID
@@ -26,7 +26,7 @@ export type RuleId = Brand<string, 'RuleId'>; // Rule ID
 export type Currency = Brand<string, 'Currency'>; // e.g. "USD", "EUR"
 
 // Status Strings
-export type SubscriptionStatus = 'ACTIVE' | 'INACTIVE' | 'PAST_DUE';
+export type SubscriptionStatus = 'ACTIVE' | 'INACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'CANCELED';
 export type BrandedSubscriptionStatus = Brand<SubscriptionStatus, 'SubscriptionStatus'>;
 
 export type SyncStatus = 'IDLE' | 'SYNCING' | 'ERROR';
@@ -72,13 +72,18 @@ export interface QbConnection {
     subscriptionStatus: BrandedSubscriptionStatus;
     paystackCustCode: string | null;
     paystackPlanCode: string | null;
+    paystackSubscriptionCode?: string | null; // added if present in schema
+    billingCycle?: string | null;
+    currentPeriodEnd?: Date | null;
     createdAt: Date;
     updatedAt: Date;
     timezone: string;
+    lastSyncMessage?: string | null;
 }
 
 export interface RuleFinding {
     id: RuleFindingId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     ruleId: RuleId;
     qbId: QbId;
@@ -89,6 +94,7 @@ export interface RuleFinding {
 
 export interface Account {
     id: AccountId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     name: string;
@@ -97,29 +103,34 @@ export interface Account {
     currency: Currency;
     active: boolean;
     balance: any; // Decimal
+    lastSyncedAt?: Date; // present in schema, optional if not used?
     updatedAt: Date;
     createdAt: Date;
 }
 
 export interface Transaction {
     id: TransactionId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     type: string;
     date: Date;
     amount: any; // Decimal
     status: BrandedTransactionStatus;
+    isReconciled?: boolean; // present in schema
     categoryId: string | null;
     customerId: CustomerId | null;
     vendorId: VendorId | null;
     rawData: any;
     syncToken: number;
+    lastSyncedAt?: Date;
     updatedAt: Date;
     createdAt: Date;
 }
 
 export interface Customer {
     id: CustomerId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     name: string;
@@ -127,24 +138,27 @@ export interface Customer {
     phone: string | null;
     active: boolean;
     balance: any; // Decimal
+    lastSyncedAt?: Date;
     updatedAt: Date;
     createdAt: Date;
 }
 
 export interface Vendor {
     id: VendorId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     name: string;
     email: string | null;
     active: boolean;
+    lastSyncedAt?: Date;
     updatedAt: Date;
     createdAt: Date;
 }
 
 export interface DiagnosticRun {
     id: DiagnosticRunId;
-    tenantId: TenantId;
+    tenantId: TenantId; // already present
     runAt: Date;
     healthScore: number;
     status: BrandedDiagnosticRunStatus;
@@ -183,6 +197,7 @@ export interface Issue {
 
 export interface SyncLog {
     id: SyncLogId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     entityType: string;
     recordsSynced: number;
@@ -195,6 +210,7 @@ export interface SyncLog {
 
 export interface BankTransaction {
     id: BankTransactionId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     accountId: AccountId;
@@ -204,12 +220,14 @@ export interface BankTransaction {
     payee: string | null;
     status: BrandedTransactionStatus;
     rawData: any;
+    lastSyncedAt?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
 
 export interface Reconciliation {
     id: ReconciliationId;
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     qbId: QbId;
     accountId: AccountId;
@@ -219,11 +237,13 @@ export interface Reconciliation {
     closingBalance: any; // Decimal
     status: BrandedTransactionStatus;
     rawData: any;
+    lastSyncedAt?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
 
 export interface RuleConfig {
+    tenantId: TenantId; // NEW
     realmId: RealmId;
     ruleId: RuleId;
     json: any;

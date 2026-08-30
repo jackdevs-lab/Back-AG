@@ -27,7 +27,8 @@ export class NegativeApBalanceRule implements IRule {
             EnrichedFinding
         >(ctx, this.id, this.name, this.version)
             .withData(async (repo, realmId) => {
-                const config = await fetchRuleConfig(repo, realmId, this.id);
+                const config = await fetchRuleConfig(repo, ctx.tenantId, realmId, this.id);
+
                 const lookbackYears = (config?.json as any)?.lookbackYears ?? 3;
                 const lookbackDate = new Date();
                 lookbackDate.setFullYear(lookbackDate.getFullYear() - lookbackYears);

@@ -6,7 +6,7 @@ export function formatReport(reportData: any, ctx: RuleContext, normErrors: any[
         id: f.metadata.qbId || f.id,
         label: `Deposit ${f.metadata.qbId || f.id}`,
         details: `Deposit on ${f.date.toISOString().split('T')[0]} appears to record customer revenue directly without a linked Payment or Sales Receipt.`,
-        deepLink: `https://app.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId || f.id}`
+        deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${ctx.realmId}&txnId=${f.metadata.qbId || f.id}`
     }));
 
     return formatStandardReport({

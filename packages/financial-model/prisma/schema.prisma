@@ -80,9 +80,21 @@ model QbConnection {
   @@index([subscriptionStatus])
   @@index([currentPeriodEnd])
 }
+model QbSyncState {
+  id         String   @id @default(uuid())
+  tenantId   String
+  realmId    String
+  entityType String
+  lastSyncAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  @@unique([realmId, entityType], name: "realmId_entityType")
+  @@index([tenantId, realmId])
+}
 model RuleFinding {
   id          String   @id @default(uuid())
+  tenantId    String
   realmId     String
   ruleId      String
   qbId        String
@@ -90,13 +102,14 @@ model RuleFinding {
   findingData Json
   createdAt   DateTime @default(now())
 
-  @@unique([realmId, ruleId, qbId, syncToken])
-  @@index([realmId, ruleId])
-  @@index([qbId])
+  @@unique([tenantId, realmId, ruleId, qbId, syncToken])
+  @@index([tenantId, realmId, ruleId])
+  @@index([tenantId, qbId])
 }
 
 model Account {
   id           String   @id @default(uuid())
+  tenantId     String
   realmId      String
   qbId         String
   name         String
@@ -109,13 +122,14 @@ model Account {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([realmId, qbId])
-  @@index([realmId])
-  @@index([realmId, type])
+  @@unique([tenantId, realmId, qbId])
+  @@index([tenantId, realmId])
+  @@index([tenantId, realmId, type])
 }
 
 model Transaction {
   id           String   @id
+  tenantId     String
   realmId      String
   qbId         String
   type         String
@@ -132,16 +146,17 @@ model Transaction {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([realmId, qbId])
+  @@unique([tenantId, realmId, qbId])
   @@unique([date, id])
-  @@index([realmId])
-  @@index([realmId, type])
-  @@index([realmId, date])
-  @@index([realmId, status])
+  @@index([tenantId, realmId])
+  @@index([tenantId, realmId, type])
+  @@index([tenantId, realmId, date])
+  @@index([tenantId, realmId, status])
 }
 
 model Customer {
   id           String   @id @default(uuid())
+  tenantId     String
   realmId      String
   qbId         String
   name         String
@@ -153,13 +168,14 @@ model Customer {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([realmId, qbId])
-  @@index([realmId])
-  @@index([realmId, name])
+  @@unique([tenantId, realmId, qbId])
+  @@index([tenantId, realmId])
+  @@index([tenantId, realmId, name])
 }
 
 model Vendor {
   id           String   @id @default(uuid())
+  tenantId     String
   realmId      String
   qbId         String
   name         String
@@ -169,8 +185,8 @@ model Vendor {
   updatedAt    DateTime @updatedAt
   createdAt    DateTime @default(now())
 
-  @@unique([realmId, qbId])
-  @@index([realmId])
+  @@unique([tenantId, realmId, qbId])
+  @@index([tenantId, realmId])
 }
 
 model DiagnosticRun {
@@ -235,6 +251,7 @@ model Issue {
 
 model SyncLog {
   id            String   @id @default(uuid())
+  tenantId      String
   realmId       String
   entityType    String
   recordsSynced Int
@@ -244,12 +261,13 @@ model SyncLog {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
 
-  @@index([realmId])
+  @@index([tenantId, realmId])
   @@index([createdAt])
 }
 
 model BankTransaction {
   id           String   @id @default(uuid())
+  tenantId     String
   realmId      String
   qbId         String
   accountId    String
@@ -263,14 +281,15 @@ model BankTransaction {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([realmId, qbId])
-  @@index([realmId])
-  @@index([accountId])
-  @@index([date])
+  @@unique([tenantId, realmId, qbId])
+  @@index([tenantId, realmId])
+  @@index([tenantId, accountId])
+  @@index([tenantId, date])
 }
 
 model Reconciliation {
   id             String    @id @default(uuid())
+  tenantId       String
   realmId        String
   qbId           String
   accountId      String
@@ -284,18 +303,19 @@ model Reconciliation {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@unique([realmId, qbId])
-  @@index([realmId])
-  @@index([accountId])
-  @@index([endDate])
+  @@unique([tenantId, realmId, qbId])
+  @@index([tenantId, realmId])
+  @@index([tenantId, accountId])
+  @@index([tenantId, endDate])
 }
 
 model RuleConfig {
-  realmId   String
-  ruleId    String
-  json      Json     @default("{}")
-  updatedAt DateTime @updatedAt
+  tenantId   String
+  realmId    String
+  ruleId     String
+  json       Json     @default("{}")
+  updatedAt  DateTime @updatedAt
 
-  @@id([realmId, ruleId])
-  @@index([realmId])
+  @@id([tenantId, realmId, ruleId])
+  @@index([tenantId, realmId])
 }

@@ -83,7 +83,7 @@ export class PaymentNotToUndepositedFundsRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Payment ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `Payment on ${f.date.toISOString().split('T')[0]} was deposited directly to "${f.metadata.depositedTo}" instead of Undeposited Funds.`,
-                    deepLink: `https://app.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Payments Bypassing Undeposited Funds',

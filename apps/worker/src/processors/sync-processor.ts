@@ -3,7 +3,7 @@ import { SyncEngine } from '@qb-health/ingestion';
 import { prisma, RealmId } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 import { analysisQueue } from '../queue';
-
+import { createQbClient } from '@qb-health/qb-client';
 export interface SyncJobData {
     realmId?: string;
     tenantId?: string;
@@ -16,7 +16,6 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
     let { realmId, tenantId, connectionId } = job.data;
     const { type } = job.data;
 
-    // 1. Ensure we have a valid connectionId
     if (!connectionId && tenantId && realmId) {
         const conn = await prisma.qbConnection.findUnique({
             where: { tenantId_realmId: { tenantId, realmId } },
@@ -29,7 +28,6 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         throw new Error(`Sync job failed: connectionId is required for job ${job.id}`);
     }
 
-    // 2. Fetch master connection record strictly via primary key `id`
     const connection = await prisma.qbConnection.findUnique({
         where: { id: connectionId },
         select: { id: true, realmId: true, tenantId: true, syncStatus: true, updatedAt: true }
@@ -39,7 +37,6 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         throw new Error(`Sync job failed: Connection not found for ID ${connectionId}`);
     }
 
-    // Sync realmId and tenantId from the verified database record
     realmId = connection.realmId;
     tenantId = connection.tenantId;
 
@@ -68,14 +65,14 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
             }
         }
 
-        // 3. Optimistically set status to SYNCING using primary key `id`
         await prisma.qbConnection.update({
             where: { id: connectionId },
             data: { syncStatus: 'SYNCING', lastSyncMessage: null }
         });
         syncStarted = true;
 
-        const syncEngine = new SyncEngine(realmId as RealmId, tenantId);
+        const qbClient = await createQbClient(realmId as string, tenantId);
+        const syncEngine = new SyncEngine(realmId as any, tenantId, qbClient);
         const results = await syncEngine.runFullSync();
 
         await job.updateProgress(80);
@@ -83,6 +80,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         for (const result of results) {
             await prisma.syncLog.create({
                 data: {
+                    tenantId,
                     realmId,
                     entityType: result.entityType,
                     recordsSynced: result.recordsSynced,
@@ -97,16 +95,34 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         const successfulSyncs = results.filter((r: any) => r.status === 'SUCCESS');
 
-        if (successfulSyncs.length > 0) {
-            // Queue diagnostic analysis. The analysis processor will handle resetting status to IDLE upon completion.
+        // FIX: Verify critical transactional entities didn't fail before queueing analysis
+        const criticalEntities = ['Invoices', 'Bills', 'Payments', 'VendorCredits'];
+        const criticalFailed = results.some((r: any) =>
+            criticalEntities.includes(r.entityType) && r.status !== 'SUCCESS'
+        );
+
+        if (successfulSyncs.length > 0 && !criticalFailed) {
+            // FIX: Release the sync lock immediately before queueing analysis
+            await prisma.qbConnection.update({
+                where: { id: connectionId },
+                data: {
+                    syncStatus: 'IDLE',
+                    lastSyncAt: new Date(),
+                    lastSyncMessage: null
+                }
+            });
+            syncStarted = false; // Mark sync lock as safely released
+
+            // FIX: Add jobId for deduplication
             await analysisQueue.add('run-diagnostics', {
                 realmId,
                 tenantId: tenantId as string,
                 connectionId
             }, {
+                jobId: `analysis-${connectionId}-${Date.now()}`,
                 removeOnComplete: 10
             });
-            syncStarted = false;
+
             if (successfulSyncs.length === results.length) {
                 jobLogger.info('Sync completed successfully, analysis queued');
             } else {
@@ -116,13 +132,17 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                 });
             }
         } else {
-            const errorMsg = 'Sync failed for all entities, skipping analysis';
+            const errorMsg = criticalFailed
+                ? 'Sync failed for critical transactional entities, skipping analysis'
+                : 'Sync failed for all entities, skipping analysis';
+
             jobLogger.error(errorMsg);
 
             await prisma.qbConnection.update({
                 where: { id: connectionId },
                 data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
             });
+            syncStarted = false;
         }
 
         await job.updateProgress(100);
@@ -151,7 +171,6 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     select: { syncStatus: true }
                 });
 
-                // Safety check: if worker crashed before queueing analysis and it's still SYNCING, force ERROR state
                 if (currentConnection?.syncStatus === 'SYNCING') {
                     jobLogger.warn('Job exited while still marked as SYNCING. Forcing ERROR state.');
                     await prisma.qbConnection.update({

@@ -13,6 +13,22 @@ export interface QbQueryResponse<T> {
     time: string;
 }
 
+export interface QbCdcDeletedObject {
+    name: string;
+    id: string;
+    status: string;
+}
+
+export interface QbCdcResponse {
+    CDCResponse: Array<{
+        QueryResponse: Array<{
+            [key: string]: any;
+            deletedObject?: QbCdcDeletedObject[];
+        }>;
+    }>;
+    time: string;
+}
+
 interface QbRequestConfig extends InternalAxiosRequestConfig {
     _retry?: boolean;
 }
@@ -23,12 +39,10 @@ export class QbApiClient {
     private tenantId: string;
     private token: string;
 
-    // Rate Limiter Queue State
     private requestQueue: Promise<void> = Promise.resolve();
     private lastRequestTime: number = 0;
-    private readonly minRequestInterval = 125; // 125ms = max 8 req/sec (< 500 req/min limit)
+    private readonly minRequestInterval = 125;
 
-    // Mutex Lock for Mid-Flight Token Refresh
     private refreshTokenPromise: Promise<string> | null = null;
 
     constructor(realmId: string, tenantId: string, token: string) {
@@ -54,7 +68,6 @@ export class QbApiClient {
             }
         });
 
-        // 1. Retry Logic for Transient Network Failures & 429 Status Codes
         axiosRetry(this.client, {
             retries: 3,
             retryDelay: axiosRetry.exponentialDelay,
@@ -71,11 +84,10 @@ export class QbApiClient {
             }
         });
 
-        // 2. Sequential Request Interceptor (Fixes Promise.all Rate Limiter Race Conditions)
         this.client.interceptors.request.use((config) => {
             return new Promise<InternalAxiosRequestConfig>((resolve) => {
                 this.requestQueue = this.requestQueue
-                    .catch(() => { }) // Prevent queue deadlocks on failed requests
+                    .catch(() => { })
                     .then(async () => {
                         const now = Date.now();
                         const timeSinceLastRequest = now - this.lastRequestTime;
@@ -92,7 +104,6 @@ export class QbApiClient {
             });
         });
 
-        // 3. Response Interceptor (Mid-Flight 401 Automatic Token Refresh & Request Replay)
         this.client.interceptors.response.use(
             (response) => response,
             async (error: AxiosError) => {
@@ -136,9 +147,6 @@ export class QbApiClient {
         );
     }
 
-    /**
-     * Safely parses Intuit-specific Fault error structures from response data.
-     */
     private extractQbFault(error: AxiosError): Record<string, any> {
         const data = error.response?.data as any;
 
@@ -170,7 +178,6 @@ export class QbApiClient {
         const allResults: T[] = [];
         let startPosition = 1;
 
-        // Clamp MAXRESULTS to Intuit's hard limit (1000)
         const safeMaxResults = Math.min(Math.max(1, maxResults), 1000);
 
         do {
@@ -183,7 +190,6 @@ export class QbApiClient {
 
                 const queryResponse = response.data?.QueryResponse || {};
 
-                // Case-insensitive key match (e.g. "Vendor" vs "vendor")
                 const matchedKey = Object.keys(queryResponse).find(
                     (key) => key.toLowerCase() === entityType.toLowerCase()
                 );
@@ -215,11 +221,34 @@ export class QbApiClient {
         return allResults;
     }
 
+    async cdc(entities: string[], changedSince: string): Promise<QbCdcResponse> {
+        try {
+            const response = await this.client.get<QbCdcResponse>(`/company/${this.realmId}/cdc`, {
+                params: {
+                    entities: entities.join(','),
+                    changedSince
+                }
+            });
+            return response.data;
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            const qbFault = this.extractQbFault(axiosError);
+
+            logger.error('QB CDC request failed', axiosError, {
+                entities,
+                changedSince,
+                realmId: this.realmId,
+                tenantId: this.tenantId,
+                qbFault
+            });
+            throw error;
+        }
+    }
+
     async get<T>(endpoint: string, id: string): Promise<T> {
         try {
             const response = await this.client.get(`/company/${this.realmId}/${endpoint}/${id}`);
 
-            // Case-insensitive entity key extraction for single entity responses
             const matchedKey = Object.keys(response.data || {}).find(
                 key => key.toLowerCase() === endpoint.toLowerCase()
             );

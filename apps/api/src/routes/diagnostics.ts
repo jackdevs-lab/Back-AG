@@ -202,36 +202,12 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         }
 
         const scoreBreakdown = HealthScoreCalculator.calculate(latestRun.checks as any);
+        const isLocked = connection.subscriptionStatus !== 'ACTIVE';
 
-        // 3. Determine access rights
-        // ... inside apps/api/src/routes/diagnostics.ts, within the router.get('/latest/:connectionId', ...) handler
-
-        // ... (previous code fetching connection and latestRun remains the same until...)
-
-        // 3. Determine access rights - UPDATE THIS SECTION
-        // OLD CODE:
-        // const creditsRemaining = await billingGuard.getCredits(connectionId); // This call might still internally check credits if getCredits isn't updated yet, but per Step 2, it should now reflect subscription status.
-        // const user = (req as any).user;
-        // const subscriptionStatus = user?.subscriptionStatus ?? connection.subscriptionStatus;
-        // const scanCredits = user?.scanCredits ?? creditsRemaining; // This relied on user.scanCredits (which doesn't exist in schema) or the result of billingGuard.getCredits
-        // const isLocked = subscriptionStatus === 'FREE' || subscriptionStatus !== 'ACTIVE' || scanCredits <= 0; // Complex check including scanCredits
-
-
-        // NEW CODE (per Step 3):
-        // const creditsRemaining = await billingGuard.getCredits(connectionId); // Potentially kept for other parts of the app using getCredits, but logic inside changed
-        // const user = (req as any).user; // Potentially kept for other parts of the app needing user info
-        // const subscriptionStatus = user?.subscriptionStatus ?? connection.subscriptionStatus; // Potentially kept for other parts of the app needing user status
-        // const scanCredits = user?.scanCredits ?? creditsRemaining; // Removed as scanCredits is gone and user.scanCredits doesn't exist in schema
-        // const isLocked = subscriptionStatus === 'FREE' || subscriptionStatus !== 'ACTIVE' || scanCredits <= 0; // Removed complex check
-
-        // Simple check based *only* on the connection's subscription status
-        const isLocked = connection.subscriptionStatus !== 'ACTIVE'; // Per instruction: Use connection status directly
-
-        // 4. Return conditional payload based on lock status (remains largely the same, using the updated isLocked flag)
         return res.json({
             success: true,
             data: {
-                locked: isLocked, // Use the newly calculated isLocked flag
+                locked: isLocked,
                 id: latestRun.id,
                 runId: latestRun.id,
                 runAt: latestRun.runAt ? new Date(latestRun.runAt).toISOString() : new Date().toISOString(),

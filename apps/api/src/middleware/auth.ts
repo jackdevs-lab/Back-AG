@@ -18,35 +18,26 @@ export const authMiddleware = async (
     res: Response,
     next: NextFunction
 ) => {
-    // Bypass auth for the launch route
+    // Bypass authentication for launch/health check routes
     if (req.path === '/launch' || req.baseUrl?.endsWith('/launch')) {
         return next();
     }
+
     try {
-        let authHeader = req.headers.authorization;
-        let tenantIdHeader = req.headers['x-tenant-id'] as string;
+        const authHeader = req.headers.authorization;
+        const queryToken = req.query.token as string | undefined;
+        const tenantIdHeader = req.headers['x-tenant-id'] as string;
 
-        // Fallback to query params for SSE endpoints
-        if (!authHeader && req.query.token) {
-            authHeader = `Bearer ${req.query.token}`;
-        }
-        if (!tenantIdHeader && req.query.tenantId) {
-            tenantIdHeader = req.query.tenantId as string;
-        }
+        // Fallback to query param token for EventSource / SSE connections
+        const token = authHeader?.startsWith('Bearer ')
+            ? authHeader.split(' ')[1]
+            : queryToken;
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return next(new AppError('Authorization header required', 401));
-        }
-
-        const token = authHeader.split(' ')[1];
-
-        // Guard against dummy stringified tokens ("null", "undefined") before JWT decoding
         if (!token || token === 'null' || token === 'undefined') {
-            return next(new AppError('Invalid token format', 401));
+            return next(new AppError('Authorization token required', 401));
         }
 
         try {
-            // Verify the token using Clerk's secret key
             const decoded = await verifyToken(token, {
                 secretKey: process.env.CLERK_SECRET_KEY
             });
@@ -54,57 +45,52 @@ export const authMiddleware = async (
             const userId = decoded.sub;
             const orgId = decoded.org_id;
 
-            // Priority: Organization context takes precedence
             const derivedTenantId = (orgId as string) || userId;
 
-            // Security check: Ensure requested tenant matches token context
+            // Strict Tenant Context Mismatch check
             if (tenantIdHeader && derivedTenantId !== tenantIdHeader) {
                 return next(new AppError('Tenant context mismatch', 403));
             }
 
-            // Just-In-Time (JIT) Provisioning
-            let tenant = await prisma!.tenant.findUnique({
-                where: { id: derivedTenantId }
+            // Fetch user/org metadata from Clerk safely for JIT setup if needed
+            let name = 'New Workspace';
+            let email = `tenant_${derivedTenantId}@clerk.system`;
+
+            if (orgId) {
+                try {
+                    const org = await clerkClient.organizations.getOrganization({
+                        organizationId: orgId as string
+                    });
+                    name = org.name;
+                } catch (e) {
+                    // Fallback gracefully if Clerk API blips
+                }
+            } else {
+                try {
+                    const user = await clerkClient.users.getUser(userId);
+                    name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'New User';
+                    email = user.emailAddresses[0]?.emailAddress || email;
+                } catch (e) {
+                    // Fallback gracefully
+                }
+            }
+
+            const allowedReviewerEmail = process.env.AUDITOR_BYPASS_EMAIL || 'intuit-review@auditorgen.com';
+            const isReviewer = email.toLowerCase() === allowedReviewerEmail.toLowerCase();
+
+            const tenant = await prisma!.tenant.upsert({
+                where: { id: derivedTenantId },
+                update: {},
+                create: {
+                    id: derivedTenantId,
+                    name,
+                    email,
+                    isBypassed: isReviewer
+                }
             });
 
             if (!tenant) {
-                logger.info(`JIT: Tenant ${derivedTenantId} not found in DB. Provisioning...`);
-                try {
-                    let name = 'New Workspace';
-                    let email = `tenant_${derivedTenantId}@clerk.system`;
-
-                    if (orgId) {
-                        const org = await clerkClient.organizations.getOrganization({
-                            organizationId: orgId as string
-                        });
-                        name = org.name;
-                    } else {
-                        const user = await clerkClient.users.getUser(userId);
-                        name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'New User';
-                        email = user.emailAddresses[0]?.emailAddress || email;
-                    }
-
-                    const isReviewer = email === 'intuit-review@auditorgen.com';
-
-                    tenant = await prisma!.tenant.create({
-                        data: {
-                            id: derivedTenantId,
-                            name,
-                            email,
-                            isBypassed: isReviewer // Automatically whitelists the Intuit reviewer
-                        }
-                    });
-                    logger.info(`JIT: Successfully provisioned tenant ${derivedTenantId}`);
-                } catch (provisionError: any) {
-                    logger.error('JIT Provisioning failed:', {
-                        error: provisionError.message || provisionError,
-                        code: provisionError.code,
-                        tenantId: derivedTenantId
-                    });
-                    // If creation fails (e.g. race condition), try one last fetch
-                    tenant = await prisma!.tenant.findUnique({ where: { id: derivedTenantId } });
-                    if (!tenant) return next(new AppError('Failed to initialize workspace context', 500));
-                }
+                return next(new AppError('Failed to initialize workspace context', 500));
             }
 
             req.tenantId = derivedTenantId;

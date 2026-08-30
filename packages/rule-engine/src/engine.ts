@@ -1,5 +1,5 @@
 // packages/rule-engine/src/engine.ts
-import { prisma, PrismaBrandedRepository, RealmId, QbConnectionId } from '@qb-health/financial-model';
+import { prisma, PrismaBrandedRepository, RealmId, QbConnectionId, TenantId } from '@qb-health/financial-model';
 import { createLogger, Logger } from '@qb-health/utils';
 import { ruleRegistry } from './registry';
 import { IRule, RuleContext, Issue, RuleExecutionResult, HardenedPrisma } from './types';
@@ -100,22 +100,28 @@ import { PaymentBeforeBillRule } from './rules/ap/payment-before-bill';
 
 
 export class RuleEngine {
-    private realmId: RealmId;
-    private connectionId: QbConnectionId;
+    private tenantId: string;
+    private realmId: string;
+    private connectionId: string;
     private repo: PrismaBrandedRepository;
     private logger: Logger;
 
-    constructor(realmId: string, connectionId: string) {
-        this.realmId = realmId as RealmId;
-        this.connectionId = connectionId as QbConnectionId;
+    constructor(tenantId: string, realmId: string, connectionId: string) {
+        this.tenantId = tenantId;
+        this.realmId = realmId;
+        this.connectionId = connectionId;
         this.repo = new PrismaBrandedRepository(prisma);
-        this.logger = createLogger({ realmId, connectionId });
+        this.logger = createLogger({ tenantId, realmId, connectionId });
 
         // Register all rules
         this.registerRules();
     }
 
     private registerRules(): void {
+        // Prevent re-registration and log spam on subsequent worker jobs
+        if (ruleRegistry.getCount() > 0) {
+            return;
+        }
         // Hygiene Rules
         ruleRegistry.register(new UnappliedPaymentsRule());
         // DISABLED - Not in current priority list
@@ -221,8 +227,9 @@ export class RuleEngine {
             const startTime = Date.now();
             try {
                 const context: RuleContext = {
-                    realmId: this.realmId,
-                    connectionId: this.connectionId,
+                    tenantId: this.tenantId as TenantId,
+                    realmId: this.realmId as RealmId,
+                    connectionId: this.connectionId as QbConnectionId,
                     repo: this.repo,
                     logger: this.logger.child({ ruleId: rule.id })
                 };
@@ -279,8 +286,9 @@ export class RuleEngine {
         }
 
         const context: RuleContext = {
-            realmId: this.realmId,
-            connectionId: this.connectionId,
+            tenantId: this.tenantId as TenantId,
+            realmId: this.realmId as RealmId,
+            connectionId: this.connectionId as QbConnectionId,
             repo: this.repo,
             logger: this.logger.child({ ruleId })
         };

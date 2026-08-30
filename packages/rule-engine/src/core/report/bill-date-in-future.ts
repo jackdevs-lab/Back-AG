@@ -1,3 +1,4 @@
+//packages/rule-engine/src/core/report/bill-date-in-future.ts
 import { formatStandardReport } from '../shared/report-utils';
 import { EnrichedFinding } from '../shared/base-schemas';
 
@@ -30,7 +31,7 @@ export function formatReport(
                     style: 'currency',
                     currency: f.currency || 'USD'
                 }).format(amountValue)}`,
-                deepLink: `https://app.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.id}`
+                deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.id}`
             };
         });
 
@@ -38,7 +39,7 @@ export function formatReport(
         id: f.qbId || 'unknown',
         label: `[Data Blind Spot] Bill ${f.qbId || 'Unknown'}`,
         details: `Skipped due to missing critical fields: ${f.details?.fieldErrors ? Object.keys(f.details.fieldErrors).join(', ') : 'Critical data missing.'}`,
-        deepLink: `https://app.qbo.intuit.com/app/expenses?realmId=${realmId}`
+        deepLink: `https://sandbox.qbo.intuit.com/app/expenses?realmId=${realmId}`
     }));
 
 

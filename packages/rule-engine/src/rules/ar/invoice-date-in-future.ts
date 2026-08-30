@@ -99,7 +99,7 @@ export class InvoiceDateInFutureRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - Invoice ${f.metadata.qbId}`,
                     details: `Invoice amount is $${f.amount.toFixed(2)} with a future date of ${f.date.toISOString().split('T')[0]}.`,
-                    deepLink: `https://app.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
 
                 const reportString = formatStandardReport({

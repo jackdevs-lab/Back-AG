@@ -1,4 +1,4 @@
-import { RealmId, QbConnectionId, RuleId, BrandedRepository } from '@qb-health/financial-model';
+import { RealmId, QbConnectionId, RuleId, BrandedRepository, TenantId } from '@qb-health/financial-model';
 export { RuleId } from '@qb-health/financial-model';
 import { Logger } from '@qb-health/utils';
 
@@ -7,6 +7,7 @@ export type HardenedPrisma = any;
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'WARNING' | 'INFO';
 
 export interface RuleContext {
+    tenantId: TenantId;
     realmId: RealmId;
     repo: BrandedRepository;
     logger: Logger;

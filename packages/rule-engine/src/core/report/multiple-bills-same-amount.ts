@@ -26,7 +26,7 @@ export function formatReport(
                 id: sortedIds.join(','),
                 label: `${f.metadata?.vendorName} - ${singleAmount} (x${items.length})`,
                 details: `${items.length} bills with identical amounts within window. Dates: ${dates}. Fingerprint: ${f.metadata?.fingerprint?.substring(0, 8)}`,
-                deepLink: items.map((i: any) => `https://app.qbo.intuit.com/app/bill?realmId=${ctx.realmId}&txnId=${i.qbId}`)
+                deepLink: items.map((i: any) => `https://sandbox.qbo.intuit.com/app/bill?realmId=${ctx.realmId}&txnId=${i.qbId}`)
             };
         }),
         recommendation: '[RECOMMENDATION_TEXT]',

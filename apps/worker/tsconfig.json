@@ -1,1 +1,14 @@
-{"extends": "../../tsconfig.base.json", "compilerOptions": {"outDir": "dist"}, "include": ["src/**/*"]}
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "dist"
+    },
+    "paths": {
+        "@qb-health/qb-client": [
+            "../../packages/qb-client/src/index.ts"
+        ]
+    },
+    "include": [
+        "src/**/*"
+    ]
+}

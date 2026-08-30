@@ -3,8 +3,13 @@ import { BrandedRepository, RealmId, RuleId, QbId } from '@qb-health/financial-m
 import { Prisma } from '@qb-health/financial-model';
 import { z } from 'zod';
 
-export async function fetchRuleConfig(repo: BrandedRepository, realmId: RealmId, ruleId: RuleId) {
-    return repo.findRuleConfig(realmId, ruleId);
+export async function fetchRuleConfig(
+    repo: BrandedRepository,
+    tenantId: string,
+    realmId: RealmId,
+    ruleId: RuleId
+) {
+    return repo.findRuleConfig(tenantId, realmId, ruleId);
 }
 
 export async function fetchSyncLogs(repo: BrandedRepository, params: { realmId: RealmId; entityTypes: string[] }) {

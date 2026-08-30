@@ -9,16 +9,17 @@ import { AppError } from '../middleware/error-handler';
 import { syncQueue } from '../queue';
 import reportsRouter from './reports';
 import webhooksRouter from './webhooks';
+import paystackWebhookRouter from './webhooks/paystack';
 import subscriptionsRouter from './subscriptions';
 import { prisma } from '@qb-health/financial-model';
+import { deleteConnectionData } from '../services/connection-cleanup';
 
 const router: Router = Router();
 
 // Public routes
 router.use('/auth', authRouter);
-
-// Mounted webhooks router with express.raw() to preserve the raw body for HMAC signature verification
-router.use('/webhooks', express.raw({ type: 'application/json' }), webhooksRouter);
+router.use('/webhooks/paystack', paystackWebhookRouter);
+router.use('/webhooks', webhooksRouter);
 
 router.get('/version', (req, res) => {
     res.json({
@@ -37,26 +38,15 @@ router.get('/launch', (req: Request, res: Response) => {
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
-router.get('/qb/disconnect-callback', (req: Request, res: Response) => {
-    const realmId = String(
-        req.query.realmId ||
-        req.query.realmid ||
-        req.query.realm_id ||
-        ''
-    ).trim();
+router.get('/qb/disconnect-callback', (req, res) => {
+    // 1. Extract if it exists (mostly for the frontend UI to display it if needed)
+    const rawRealmId = req.query.realmId || req.query.realmid || req.query.realmID;
+    const realmId = String(rawRealmId || '').trim();
 
-    logger.info('QuickBooks external disconnect callback received', {
-        hasRealmId: Boolean(realmId)
-    });
+    // 2. NO PRISMA DELETIONS HERE. EVER.
 
-    const frontendUrl = process.env.FRONTEND_URL;
-
-    if (!frontendUrl) {
-        logger.error('FRONTEND_URL is not configured');
-        return res.status(500).send('Frontend URL is not configured');
-    }
-
-    return res.redirect(`${frontendUrl}/disconnected`);
+    // 3. Just send the user to the frontend disconnect page
+    return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
 });
 
 // Protected routes

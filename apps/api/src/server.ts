@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import reportsRouter from './routes/reports';
 import rateLimit from 'express-rate-limit';
 import { logger } from '@qb-health/utils';
 import { prisma } from '@qb-health/financial-model';
@@ -45,7 +46,7 @@ app.get('/health', async (req: Request, res: Response) => {
 
 // Routes
 app.use('/api', routes);
-
+app.use('/api/reports', reportsRouter);
 // Error handling
 app.use(errorHandler);
 
