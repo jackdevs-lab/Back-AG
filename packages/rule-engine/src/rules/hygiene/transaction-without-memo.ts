@@ -69,7 +69,7 @@ export class TransactionWithoutMemoRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Journal Entry ${f.metadata.qbId} � $${f.amount.toFixed(2)}`,
                     details: `Journal entry on ${f.date.toISOString().split('T')[0]} has no memo or line descriptions.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/journalentry?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://qbo.intuit.com/app/journalentry?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Transactions Without Memos',

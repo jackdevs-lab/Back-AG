@@ -48,7 +48,7 @@ export function formatDuplicateReport(params: {
         details: string;
     }>;
     realmId: string;
-    baseUrl: string; // e.g., 'https://sandbox.qbo.intuit.com/app/bill'
+    baseUrl: string; // e.g., 'https://qbo.intuit.com/app/bill'
     limit?: number;
 }): string {
     const { groups, realmId, baseUrl, limit = 10 } = params;

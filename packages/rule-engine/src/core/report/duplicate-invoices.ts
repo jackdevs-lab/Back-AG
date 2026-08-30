@@ -32,7 +32,7 @@ export async function formatReport(
             id: f.id,
             label: `${customerName} - ${formattedAmount} ${f.currency}`,
             details: `Found ${f.entities.length} invoices on ${isoDate} with the same amount. Affects IDs: ${clusterIds.join(', ')}.`,
-            deepLink: clusterIds.map((id: string) => `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${id}`)
+            deepLink: clusterIds.map((id: string) => `https://qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${id}`)
         };
     });
 

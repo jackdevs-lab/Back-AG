@@ -29,7 +29,7 @@ export async function formatReport(
             id: f.metadata.qbId,
             label: `${customerName} - Credit Memo ${f.metadata.qbId}`,
             details: `Credit Memo for $${originalAmt} on ${dateStr} still has $${unappliedAmt} unapplied.`,
-            deepLink: `https://sandbox.qbo.intuit.com/app/creditmemo?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+            deepLink: `https://qbo.intuit.com/app/creditmemo?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
         };
     });
 
@@ -37,7 +37,7 @@ export async function formatReport(
         id: err.qbId || 'UNKNOWN_ID',
         label: `Unscannable Credit Memo (ID: ${err.qbId || 'Unknown'})`,
         details: `Data validation failed: ${err.error}. This transaction could not be analyzed and represents a blind spot.`,
-        deepLink: err.qbId ? `https://sandbox.qbo.intuit.com/app/creditmemo?realmId=${ctx.realmId}&txnId=${err.qbId}` : undefined
+        deepLink: err.qbId ? `https://qbo.intuit.com/app/creditmemo?realmId=${ctx.realmId}&txnId=${err.qbId}` : undefined
     }));
     const allReportItems: ReportItem[] = [...displayItems, ...errorItems];
 

@@ -83,7 +83,7 @@ export class OldUnclearedCheckRule implements IRule {
                     id: f.metadata.qbId,
                     label: `Check ${f.metadata.qbId} � $${f.amount.toFixed(2)} (${f.metadata.daysOld} days old)`,
                     details: `Check issued on ${f.date.toISOString().split('T')[0]} for $${f.amount.toFixed(2)} has not cleared after ${f.metadata.daysOld} days.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/check?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: `https://qbo.intuit.com/app/check?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
                 }));
                 return formatStandardReport({
                     title: 'Old Uncleared Checks',
