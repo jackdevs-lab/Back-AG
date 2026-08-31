@@ -117,28 +117,28 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Fetch the data FIRST
+        // ✅ 1. HARD PAYWALL CHECK
+        const isActive = await billingGuard.isSubscriptionActive(connectionId);
+
+        if (!isActive) {
+            return res.json({
+                success: true,
+                data: {
+                    locked: true,
+                    message: 'An active subscription is required to view diagnostic reports.'
+                }
+            });
+        }
+
+        // 2. Fetch the data (Only runs if they paid)
         const latestRun = await prisma.diagnosticRun.findFirst({
-            where: {
-                tenantId,
-                connectionId
-            },
+            where: { tenantId, connectionId },
             orderBy: { runAt: 'desc' },
-            include: {
-                issues: {
-                    orderBy: { severity: 'desc' },
-                    take: 50
-                },
-                checks: true
-            }
+            include: { issues: { orderBy: { severity: 'desc' }, take: 50 }, checks: true }
         });
 
         if (!latestRun) {
-            return res.json({
-                success: true,
-                data: null,
-                message: 'No diagnostic runs found'
-            });
+            return res.json({ success: true, data: null, message: 'No diagnostic runs found' });
         }
 
         // 2. Prepare the summary/teaser metadata

@@ -70,7 +70,8 @@ router.get(
     query('planCode').optional().isString(),
     async (req: AuthRequest, res: Response, next) => {
         try {
-            if (process.env.NODE_ENV === 'production' || process.env.MOCK_BILLING !== 'true') {
+            const isProd = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'prod';
+            if (isProd || process.env.MOCK_BILLING !== 'true') {
                 throw new AppError('Not found', 404);
             }
 

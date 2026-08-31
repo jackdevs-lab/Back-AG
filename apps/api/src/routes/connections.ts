@@ -6,6 +6,7 @@ import { syncQueue } from '../queue';
 import { decrypt, logger } from '@qb-health/utils';
 import { oauthService } from '@qb-health/qb-client';
 import { deleteConnectionData } from '../services/connection-cleanup';
+import { billingGuard } from './services/billing-guard.service';
 const router: Router = Router();
 const QB_BASE_URL = process.env.QB_ENVIRONMENT === 'sandbox'
     ? 'https://sandbox-quickbooks.api.intuit.com'
@@ -530,14 +531,13 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
         const { id } = req.params;
         const { tenantId } = req;
 
-        // Fetch connection AND the tenant to check the isBypassed flag
         const connection = await prisma.qbConnection.findUnique({
             where: { id },
             include: { tenant: true }
         });
 
         if (!connection || connection.tenantId !== tenantId) {
-            throw new AppError('Connection not found', 404);
+            return next(new AppError('Connection not found', 404));
         }
 
         // 1. Validate subscription status with bypass logic
@@ -546,7 +546,6 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
         const isDemoSandbox = allowedDemoRealms.includes(connection.realmId);
         const isBypassed = connection.tenant?.isBypassed || false;
 
-        // Block ONLY if they have no active sub AND aren't hitting a sandbox/reviewer bypass
         if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox && !isSandboxEnv && !isBypassed) {
             res.status(402).json({
                 success: false,
@@ -554,18 +553,18 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
                 message: 'An active subscription is required to run a manual audit sync.',
                 upgradeRequired: true
             });
-            return;
+            return; // Explicit return void
         }
 
-        // 2. Prevent overlapping syncs based on database status
+        // 2. Prevent overlapping syncs
         if (connection.syncStatus === 'SYNCING') {
-            throw new AppError('A sync is already in progress for this company.', 409);
+            return next(new AppError('A sync is already in progress for this company.', 409));
         }
 
         // 3. 5-Minute Sync Cooldown Check
         if (connection.updatedAt) {
             const timeDelta = Date.now() - connection.updatedAt.getTime();
-            const COOLDOWN_MS = 6000; // 5 minutes
+            const COOLDOWN_MS = 6000;
 
             if (timeDelta < COOLDOWN_MS) {
                 const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
@@ -573,12 +572,9 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
                     error: "Cooldown active",
                     retryAfterSeconds
                 });
-                return;
+                return; // Explicit return void
             }
         }
-
-        // REMOVED THE OPTIMISTIC prisma.qbConnection.update HERE.
-        // Let the worker set it to SYNCING safely when it actually starts.
 
         // 4. Queue the sync job
         const job = await syncQueue.add('trigger-sync', {
@@ -595,8 +591,11 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             jobId: job.id,
             message: 'Sync queued'
         });
+        return; // Explicit return void
+
     } catch (error) {
         next(error);
+        return; // Explicit return void
     }
 });
 

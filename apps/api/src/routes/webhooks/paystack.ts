@@ -109,7 +109,7 @@ async function handleChargeSuccess(data: any) {
     await prisma.$transaction(async (tx) => {
         const connection = await tx.qbConnection.findUnique({
             where: { id: connectionId },
-            select: { id: true, version: true, lastTransactionRef: true },
+            select: { id: true, lastTransactionRef: true },
         });
 
         if (!connection) {
@@ -125,12 +125,11 @@ async function handleChargeSuccess(data: any) {
         await tx.qbConnection.update({
             where: {
                 id: connectionId,
-                version: connection.version, // OCC Check
             },
             data: {
+                subscriptionStatus: 'ACTIVE',
                 paystackCustCode: customerCode || undefined,
                 lastTransactionRef: transactionRef,
-                version: { increment: 1 },
             },
         });
     });
@@ -172,15 +171,12 @@ async function handleSubscriptionCreate(data: any) {
         await tx.qbConnection.update({
             where: {
                 id: connection.id,
-                version: connection.version, // OCC Check
             },
             data: {
-                subscriptionStatus: 'ACTIVE',
                 paystackCustCode: customerCode || undefined,
                 paystackPlanCode: planCode || undefined,
                 paystackSubscriptionCode: subscriptionCode || undefined,
                 currentPeriodEnd: nextPaymentDate ? new Date(nextPaymentDate) : null,
-                version: { increment: 1 },
             },
         });
     });
@@ -222,12 +218,11 @@ async function handleSubscriptionUpdate(data: any) {
 
         await tx.qbConnection.update({
             where: {
-                id: connection.id,
-                version: connection.version, // OCC Check
+                id: connection.id, // 'id' is the @id, so it's perfectly valid
             },
             data: {
                 subscriptionStatus,
-                version: { increment: 1 },
+
             },
         });
     });
@@ -263,12 +258,10 @@ async function handleSubscriptionDisable(data: any) {
 
         await tx.qbConnection.update({
             where: {
-                id: connection.id,
-                version: connection.version, // OCC Check
+                id: connection.id, // 'id' is the @id, so it's perfectly valid
             },
             data: {
                 subscriptionStatus: 'INACTIVE',
-                version: { increment: 1 },
             },
         });
     });

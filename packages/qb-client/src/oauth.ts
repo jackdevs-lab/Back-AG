@@ -94,16 +94,15 @@ export class OAuthService {
         const encryptedRefreshToken = encrypt(tokenData.refresh_token);
         const tokenExpiry = new Date(Date.now() + (tokenData.expires_in * 1000));
 
+        // ✅ FIX: Explicitly check for Demo Sandbox
         const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
-        const defaultSubscriptionStatus = 'ACTIVE';
+        const initialSubscriptionStatus = isDemoSandbox ? 'ACTIVE' : 'INACTIVE';
 
-        logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
+        logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox, initialSubscriptionStatus });
 
         try {
             await prisma.qbConnection.upsert({
-                where: {
-                    tenantId_realmId: { tenantId, realmId }
-                },
+                where: { tenantId_realmId: { tenantId, realmId } },
                 update: {
                     accessToken: encryptedAccessToken,
                     refreshToken: encryptedRefreshToken,
@@ -118,7 +117,7 @@ export class OAuthService {
                     tokenExpiry,
                     isActive: true,
                     syncStatus: 'IDLE',
-                    subscriptionStatus: defaultSubscriptionStatus
+                    subscriptionStatus: initialSubscriptionStatus // ✅ ONLY ACTIVE IF DEMO
                 }
             });
         } catch (error) {
