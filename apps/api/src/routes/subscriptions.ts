@@ -22,7 +22,7 @@ router.get(
             // 1. Verify transaction directly with Paystack
             const resp = await fetch(
                 `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-                { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+                { headers: { Authorization: `Bearer ${process.env.PAYSTACK_LIVE_SECRET_KEY}` } }
             );
 
             if (!resp.ok) {
