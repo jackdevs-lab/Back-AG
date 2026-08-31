@@ -51,6 +51,7 @@ export class PaystackService {
                 body: JSON.stringify({
                     email,
                     amount: Math.round(amount * 100),
+                    callback_url: `${process.env.NEXT_PUBLIC_API_URL}/billing/callback`,
                     plan: planCode,
                     metadata: {
                         connectionId,
