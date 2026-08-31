@@ -7,7 +7,74 @@ import { AuthRequest } from '../middleware/auth';
 import { paystackService } from './services/paystack.service';
 
 const router: Router = Router();
+router.get(
+    '/verify',
+    query('reference').isString().notEmpty().withMessage('reference is required'),
+    async (req: AuthRequest, res: Response, next) => {
+        try {
+            const errors = validationResult(req);
+            if (!errors.isEmpty()) {
+                throw new AppError(errors.array()[0].msg, 400);
+            }
 
+            const reference = req.query.reference as string;
+
+            // 1. Verify transaction directly with Paystack
+            const resp = await fetch(
+                `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+                { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+            );
+
+            if (!resp.ok) {
+                throw new AppError('Paystack verification request failed', 502);
+            }
+
+            const json: any = await resp.json();
+
+            if (!json.status || json.status !== true) {
+                throw new AppError(json.message || 'Paystack verification failed', 400);
+            }
+
+            const data = json.data;
+
+            // 2. Check if the payment was actually successful
+            if (data.status !== 'success') {
+                return res.json({
+                    success: false,
+                    status: data.status,
+                    message: 'Payment was not successful'
+                });
+            }
+
+            // 3. Extract connectionId from metadata
+            const metadata = typeof data.metadata === 'string'
+                ? JSON.parse(data.metadata)
+                : (data.metadata || {});
+
+            const connectionId = metadata.connectionId;
+
+            if (!connectionId) {
+                throw new AppError('Missing connectionId in transaction metadata', 400);
+            }
+
+            // 4. Idempotent activation (Safe even if the webhook already fired)
+            await prisma.qbConnection.update({
+                where: { id: connectionId },
+                data: {
+                    subscriptionStatus: 'ACTIVE',
+                    paystackCustCode: data.customer?.customer_code || undefined,
+                    lastTransactionRef: data.reference,
+                },
+            });
+
+            return res.json({ success: true, status: data.status, connectionId });
+
+        } catch (error) {
+
+            return next(error);
+        }
+    }
+);
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/subscriptions/checkout
 // ─────────────────────────────────────────────────────────────────────────────
