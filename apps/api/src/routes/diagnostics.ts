@@ -121,14 +121,77 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         const isActive = await billingGuard.isSubscriptionActive(connectionId);
 
         if (!isActive) {
+            // Fetch header only (no heavy includes) for the teaser numbers
+            const teaserRun = await prisma.diagnosticRun.findFirst({
+                where: { tenantId, connectionId },
+                orderBy: { runAt: 'desc' },
+                select: { id: true, runAt: true, healthScore: true, metadata: true }
+            });
+
+            let criticalCount = 0, warningCount = 0, infoCount = 0, totalEntities = 0;
+            let totalExposureStr = '$0.00';
+
+            if (teaserRun) {
+                const metadata = (teaserRun.metadata as any) || {};
+                criticalCount = metadata.criticalCount ?? 0;
+                warningCount = metadata.warningCount ?? 0;
+                infoCount = metadata.infoCount ?? 0;
+                totalEntities = metadata.entitiesAffected ?? 0;
+                totalExposureStr = metadata.totalExposure ?? '$0.00';
+
+                // Fallback if metadata incomplete
+                if (metadata.criticalCount === undefined) {
+                    const allIssues = await prisma.issue.findMany({
+                        where: { runId: teaserRun.id },
+                        select: { severity: true, entities: true }
+                    });
+                    criticalCount = allIssues.filter(i => i.severity === 'CRITICAL').length;
+                    warningCount = allIssues.filter(i => i.severity === 'WARNING').length;
+                    infoCount = allIssues.filter(i => i.severity === 'INFO').length;
+                    totalEntities = allIssues.reduce((s, i) => s + ((i.entities as any[])?.length ?? 0), 0);
+                }
+            }
+
+            const totalIssues = criticalCount + warningCount + infoCount;
+            const runAtIso = teaserRun?.runAt ? new Date(teaserRun.runAt).toISOString() : null;
+
             return res.json({
                 success: true,
                 data: {
                     locked: true,
-                    message: 'An active subscription is required to view diagnostic reports.'
+                    message: 'An active subscription is required to view the full diagnostic report.',
+                    // ✅ Shape-safe fields the frontend expects (never omit dates!)
+                    id: teaserRun?.id ?? null,
+                    runId: teaserRun?.id ?? null,
+                    runAt: runAtIso,
+                    lastRunAt: runAtIso,
+                    healthScore: teaserRun?.healthScore ?? 0,
+                    scoreLabel: 'Locked',
+                    scoreColor: '#94A3B8',
+                    criticalCount,
+                    warningCount,
+                    infoCount,
+                    issueCount: totalIssues,
+                    totalIssues,
+                    totalEntities,
+                    affectedEntitiesCount: totalEntities,
+                    totalExposure: totalExposureStr,
+                    summary: {
+                        totalIssues,
+                        criticalCount,
+                        warningCount,
+                        infoCount,
+                        affectedEntitiesCount: totalEntities,
+                        totalEntities,
+                        totalExposure: totalExposureStr
+                    },
+                    checks: [],   // Granular data stays hidden
+                    issues: []    // Granular data stays hidden
                 }
             });
         }
+
+        // ... your existing UNLOCKED full-report logic below stays unchanged ...
 
         // 2. Fetch the data (Only runs if they paid)
         const latestRun = await prisma.diagnosticRun.findFirst({
