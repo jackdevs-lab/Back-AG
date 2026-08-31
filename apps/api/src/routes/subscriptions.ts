@@ -1,3 +1,4 @@
+// apps/api/src/routes/subscriptions.ts
 import { Router, Response } from 'express';
 import { body, query, validationResult } from 'express-validator';
 import { prisma } from '@qb-health/financial-model';
@@ -63,9 +64,6 @@ router.post(
     }
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/subscriptions/mock-activate  (DEV / TEST ONLY)
-// ─────────────────────────────────────────────────────────────────────────────
 router.get(
     '/mock-activate',
     query('connectionId').isString().notEmpty(),

@@ -1,3 +1,4 @@
+//apps/api/src/routes/webhooks/paystack.ts
 import { Router, Request, Response, raw } from 'express';
 import { prisma } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
@@ -8,6 +9,7 @@ const router: Router = Router();
 router.use(raw({ type: 'application/json' }));
 
 router.post('/', verifyPaystackSignature, async (req: Request, res: Response) => {
+    // 1. Acknowledge receipt immediately to avoid payment gateway timeouts
     res.status(200).send('OK');
 
     try {
@@ -19,11 +21,25 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
             return;
         }
 
+        // Construct a unique deterministic event ID from Paystack payload
+        const eventId = payload.id
+            ? String(payload.id)
+            : `${eventType}_${data.reference || data.subscription_code || Date.now()}`;
+
         logger.info(`Processing Paystack webhook event: ${eventType}`, {
+            eventId,
             reference: data.reference,
             subscription_code: data.subscription_code,
         });
 
+        // 2. Idempotency Gatekeeper: Reserve the event ID in PostgreSQL
+        const isNewEvent = await recordWebhookEvent(eventId, eventType);
+        if (!isNewEvent) {
+            // Already processed by another concurrent thread or previous delivery attempt
+            return;
+        }
+
+        // 3. Delegate to event handlers
         switch (eventType) {
             case 'charge.success':
                 await handleChargeSuccess(data);
@@ -44,6 +60,27 @@ router.post('/', verifyPaystackSignature, async (req: Request, res: Response) =>
         logger.error('Error processing Paystack webhook background task:', error);
     }
 });
+
+/**
+ * Attempts to record the webhook event ID. Returns false if event already exists (P2002 constraint).
+ */
+async function recordWebhookEvent(eventId: string, eventType: string): Promise<boolean> {
+    try {
+        await prisma.processedWebhook.create({
+            data: {
+                id: eventId,
+                eventType: eventType,
+            },
+        });
+        return true;
+    } catch (error: any) {
+        if (error.code === 'P2002') {
+            logger.info(`Duplicate webhook event [${eventId}] intercepted by idempotency check. Skipping.`);
+            return false;
+        }
+        throw error;
+    }
+}
 
 function parseMetadata(metadata: any): Record<string, any> {
     if (!metadata) return {};
@@ -69,22 +106,33 @@ async function handleChargeSuccess(data: any) {
     const transactionRef = data.reference;
     const customerCode = data.customer?.customer_code;
 
-    const existing = await prisma.qbConnection.findUnique({
-        where: { id: connectionId },
-        select: { lastTransactionRef: true },
-    });
+    await prisma.$transaction(async (tx) => {
+        const connection = await tx.qbConnection.findUnique({
+            where: { id: connectionId },
+            select: { id: true, version: true, lastTransactionRef: true },
+        });
 
-    if (existing?.lastTransactionRef === transactionRef) {
-        logger.info(`Transaction ${transactionRef} already processed for connectionId=${connectionId}, skipping.`);
-        return;
-    }
+        if (!connection) {
+            logger.warn(`charge.success: connection not found for connectionId=${connectionId}`);
+            return;
+        }
 
-    await prisma.qbConnection.update({
-        where: { id: connectionId },
-        data: {
-            paystackCustCode: customerCode || undefined,
-            lastTransactionRef: transactionRef,
-        },
+        if (connection.lastTransactionRef === transactionRef) {
+            logger.info(`Transaction ${transactionRef} already processed for connectionId=${connectionId}, skipping.`);
+            return;
+        }
+
+        await tx.qbConnection.update({
+            where: {
+                id: connectionId,
+                version: connection.version, // OCC Check
+            },
+            data: {
+                paystackCustCode: customerCode || undefined,
+                lastTransactionRef: transactionRef,
+                version: { increment: 1 },
+            },
+        });
     });
 
     logger.info(`Updated charge.success for connectionId=${connectionId}`);
@@ -103,35 +151,41 @@ async function handleSubscriptionCreate(data: any) {
         return;
     }
 
-    let connection;
-    if (connectionId) {
-        connection = await prisma.qbConnection.findUnique({ where: { id: connectionId } });
-    } else {
-        connection = await prisma.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
-    }
+    await prisma.$transaction(async (tx) => {
+        let connection;
+        if (connectionId) {
+            connection = await tx.qbConnection.findUnique({ where: { id: connectionId } });
+        } else {
+            connection = await tx.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
+        }
 
-    if (!connection) {
-        logger.warn(`subscription.create: connection not found for connectionId=${connectionId}, customerCode=${customerCode}`);
-        return;
-    }
+        if (!connection) {
+            logger.warn(`subscription.create: connection not found for connectionId=${connectionId}, customerCode=${customerCode}`);
+            return;
+        }
 
-    if (connection.paystackSubscriptionCode === subscriptionCode && connection.subscriptionStatus === 'ACTIVE') {
-        logger.info(`Subscription ${subscriptionCode} already active for connectionId=${connection.id}, skipping.`);
-        return;
-    }
+        if (connection.paystackSubscriptionCode === subscriptionCode && connection.subscriptionStatus === 'ACTIVE') {
+            logger.info(`Subscription ${subscriptionCode} already active for connectionId=${connection.id}, skipping.`);
+            return;
+        }
 
-    await prisma.qbConnection.update({
-        where: { id: connection.id },
-        data: {
-            subscriptionStatus: 'ACTIVE',
-            paystackCustCode: customerCode || undefined,
-            paystackPlanCode: planCode || undefined,
-            paystackSubscriptionCode: subscriptionCode || undefined,
-            currentPeriodEnd: nextPaymentDate ? new Date(nextPaymentDate) : null,
-        },
+        await tx.qbConnection.update({
+            where: {
+                id: connection.id,
+                version: connection.version, // OCC Check
+            },
+            data: {
+                subscriptionStatus: 'ACTIVE',
+                paystackCustCode: customerCode || undefined,
+                paystackPlanCode: planCode || undefined,
+                paystackSubscriptionCode: subscriptionCode || undefined,
+                currentPeriodEnd: nextPaymentDate ? new Date(nextPaymentDate) : null,
+                version: { increment: 1 },
+            },
+        });
     });
 
-    logger.info(`Activated subscription (ACTIVE) for connectionId=${connection.id} via subscription.create`);
+    logger.info(`Activated subscription (ACTIVE) via subscription.create`);
 }
 
 async function handleSubscriptionUpdate(data: any) {
@@ -141,36 +195,44 @@ async function handleSubscriptionUpdate(data: any) {
     const customerCode = data.customer?.customer_code;
     const connectionId = metadata.connectionId;
 
-    let connection;
-    if (connectionId) {
-        connection = await prisma.qbConnection.findUnique({ where: { id: connectionId } });
-    } else if (subscriptionCode) {
-        connection = await prisma.qbConnection.findFirst({ where: { paystackSubscriptionCode: subscriptionCode } });
-    } else if (customerCode) {
-        connection = await prisma.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
-    }
-
-    if (!connection) {
-        logger.warn(`subscription.update: no connection found for connectionId=${connectionId}, subCode=${subscriptionCode}, custCode=${customerCode}`);
-        return;
-    }
-
     let subscriptionStatus: 'ACTIVE' | 'INACTIVE' | 'PAST_DUE';
     if (status === 'active') subscriptionStatus = 'ACTIVE';
     else if (status === 'past_due') subscriptionStatus = 'PAST_DUE';
     else subscriptionStatus = 'INACTIVE';
 
-    if (connection.subscriptionStatus === subscriptionStatus) {
-        logger.info(`Subscription status already ${subscriptionStatus} for connectionId=${connection.id}, skipping.`);
-        return;
-    }
+    await prisma.$transaction(async (tx) => {
+        let connection;
+        if (connectionId) {
+            connection = await tx.qbConnection.findUnique({ where: { id: connectionId } });
+        } else if (subscriptionCode) {
+            connection = await tx.qbConnection.findFirst({ where: { paystackSubscriptionCode: subscriptionCode } });
+        } else if (customerCode) {
+            connection = await tx.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
+        }
 
-    await prisma.qbConnection.update({
-        where: { id: connection.id },
-        data: { subscriptionStatus },
+        if (!connection) {
+            logger.warn(`subscription.update: no connection found for connectionId=${connectionId}, subCode=${subscriptionCode}`);
+            return;
+        }
+
+        if (connection.subscriptionStatus === subscriptionStatus) {
+            logger.info(`Subscription status already ${subscriptionStatus} for connectionId=${connection.id}, skipping.`);
+            return;
+        }
+
+        await tx.qbConnection.update({
+            where: {
+                id: connection.id,
+                version: connection.version, // OCC Check
+            },
+            data: {
+                subscriptionStatus,
+                version: { increment: 1 },
+            },
+        });
     });
 
-    logger.info(`Updated subscription status to ${subscriptionStatus} for connectionId=${connection.id} via subscription.update`);
+    logger.info(`Updated subscription status to ${subscriptionStatus} via subscription.update`);
 }
 
 async function handleSubscriptionDisable(data: any) {
@@ -179,31 +241,39 @@ async function handleSubscriptionDisable(data: any) {
     const customerCode = data.customer?.customer_code;
     const connectionId = metadata.connectionId;
 
-    let connection;
-    if (connectionId) {
-        connection = await prisma.qbConnection.findUnique({ where: { id: connectionId } });
-    } else if (subscriptionCode) {
-        connection = await prisma.qbConnection.findFirst({ where: { paystackSubscriptionCode: subscriptionCode } });
-    } else if (customerCode) {
-        connection = await prisma.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
-    }
+    await prisma.$transaction(async (tx) => {
+        let connection;
+        if (connectionId) {
+            connection = await tx.qbConnection.findUnique({ where: { id: connectionId } });
+        } else if (subscriptionCode) {
+            connection = await tx.qbConnection.findFirst({ where: { paystackSubscriptionCode: subscriptionCode } });
+        } else if (customerCode) {
+            connection = await tx.qbConnection.findFirst({ where: { paystackCustCode: customerCode } });
+        }
 
-    if (!connection) {
-        logger.warn(`subscription.disable: no connection found for connectionId=${connectionId}, subCode=${subscriptionCode}, custCode=${customerCode}`);
-        return;
-    }
+        if (!connection) {
+            logger.warn(`subscription.disable: no connection found for connectionId=${connectionId}, subCode=${subscriptionCode}`);
+            return;
+        }
 
-    if (connection.subscriptionStatus === 'INACTIVE') {
-        logger.info(`Subscription already INACTIVE for connectionId=${connection.id}, skipping.`);
-        return;
-    }
+        if (connection.subscriptionStatus === 'INACTIVE') {
+            logger.info(`Subscription already INACTIVE for connectionId=${connection.id}, skipping.`);
+            return;
+        }
 
-    await prisma.qbConnection.update({
-        where: { id: connection.id },
-        data: { subscriptionStatus: 'INACTIVE' },
+        await tx.qbConnection.update({
+            where: {
+                id: connection.id,
+                version: connection.version, // OCC Check
+            },
+            data: {
+                subscriptionStatus: 'INACTIVE',
+                version: { increment: 1 },
+            },
+        });
     });
 
-    logger.info(`Disabled subscription (INACTIVE) for connectionId=${connection.id} via subscription.disable`);
+    logger.info(`Disabled subscription (INACTIVE) via subscription.disable`);
 }
 
 export default router;

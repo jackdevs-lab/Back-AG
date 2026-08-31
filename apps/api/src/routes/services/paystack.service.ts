@@ -1,3 +1,4 @@
+//apps/api/src/routes/services/paystack.service.ts
 import { logger } from '@qb-health/utils';
 import { prisma } from '@qb-health/financial-model';
 
@@ -90,7 +91,6 @@ export class PaystackService {
                 paystackPlanCode: planCode,
                 billingCycle: 'monthly',
                 currentPeriodEnd: currentPeriodEnd,
-                // scanCredits: { increment: 10 } // <-- REMOVED
             }
         });
 

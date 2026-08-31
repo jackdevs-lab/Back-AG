@@ -74,6 +74,7 @@ model QbConnection {
   issues                   Issue[]
   tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lastSyncMessage          String?            @db.Text
+  version                  Int                @default(1)
 
   @@unique([tenantId, realmId])
   @@index([realmId])
@@ -224,7 +225,13 @@ model DiagnosticCheck {
   @@index([runId])
   @@index([ruleId])
 }
+model ProcessedWebhook {
+  id        String   @id 
+  eventType String
+  createdAt DateTime @default(now())
 
+  @@index([createdAt])
+}
 model Issue {
   id           String        @id @default(uuid())
   connectionId String
