@@ -12,6 +12,8 @@ router.post(
     '/clerk',
     express.raw({ type: 'application/json' }),
     async (req: Request, res: Response) => {
+        console.log('Body type:', typeof req.body);
+        console.log('Body content:', req.body);
         const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
         if (!WEBHOOK_SECRET) {
             logger.error('CLERK_WEBHOOK_SECRET is not defined');
