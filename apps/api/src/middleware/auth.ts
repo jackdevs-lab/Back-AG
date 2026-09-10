@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError } from './error-handler';
 import { prisma } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
+const instanceId = process.env.HOSTNAME || process.env.RAILWAY_SERVICE_NAME || 'unknown-instance';
 
 export const clerkClient = createClerkClient({
     secretKey: process.env.CLERK_SECRET_KEY
@@ -34,8 +35,10 @@ export const authMiddleware = async (
             : queryToken;
 
         if (!token || token === 'null' || token === 'undefined') {
+            console.warn(`[AUTH 401] Instance: ${instanceId}, Reason: MISSING_TOKEN, Path: ${req.path}, Tenant: ${tenantIdHeader}`);
             return next(new AppError('Authorization token required', 401));
         }
+
 
         try {
             const decoded = await verifyToken(token, {
@@ -96,8 +99,9 @@ export const authMiddleware = async (
             req.tenantId = derivedTenantId;
             req.userId = userId;
             next();
-        } catch (err) {
-            console.error('Clerk Token Verification Failed:', err);
+        } catch (err: any) {
+            const reason = err?.code || err?.message || 'UNKNOWN_ERROR';
+            console.warn(`[AUTH 401] Instance: ${instanceId}, Reason: ${reason}, Path: ${req.path}, Tenant: ${tenantIdHeader}`);
             return next(new AppError('Invalid or expired Clerk token', 401));
         }
     } catch (error) {
