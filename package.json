@@ -32,7 +32,7 @@
         "tsx": "^4.21.0"
     },
     "pnpm": {
-        "ignoredBuiltDependencies": [
+        "onlyBuiltDependencies": [
             "@prisma/client",
             "@prisma/engines",
             "esbuild",
