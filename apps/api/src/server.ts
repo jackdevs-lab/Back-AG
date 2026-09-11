@@ -28,7 +28,15 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // Body parsing
-app.use(express.json({ limit: '10mb' }));
+// Body parsing
+app.use((req, res, next) => {
+    // Skip the global JSON parser for webhook routes so express.raw() can handle them later
+    if (req.originalUrl.startsWith('/api/webhooks')) {
+        next();
+    } else {
+        express.json({ limit: '10mb' })(req, res, next);
+    }
+});
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging
