@@ -1,9 +1,10 @@
 import { Job } from 'bullmq';
 import { SyncEngine } from '@qb-health/ingestion';
-import { prisma, RealmId } from '@qb-health/financial-model';
+import { prisma, RealmId, TenantId } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 import { analysisQueue } from '../queue';
 import { createQbClient } from '@qb-health/qb-client';
+
 export interface SyncJobData {
     realmId?: string;
     tenantId?: string;
@@ -12,7 +13,19 @@ export interface SyncJobData {
     entityType?: string;
 }
 
-export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: boolean; results?: any[]; error?: string }> {
+export interface SyncProcessorResult {
+    success: boolean;
+    results?: Array<{
+        entityType: string;
+        recordsSynced: number;
+        durationMs: number;
+        status: 'SUCCESS' | 'FAILED' | 'PARTIAL';
+        errorMessage?: string;
+    }>;
+    error?: string;
+}
+
+export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcessorResult> {
     let { realmId, tenantId, connectionId } = job.data;
     const { type } = job.data;
 
@@ -40,7 +53,10 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
     realmId = connection.realmId;
     tenantId = connection.tenantId;
 
-    const jobLogger = logger.child({ jobId: job.id, realmId, type, connectionId });
+    const typedRealmId = realmId as RealmId;
+    const typedTenantId = tenantId as TenantId;
+
+    const jobLogger = logger.child({ jobId: job.id, realmId: typedRealmId, tenantId: typedTenantId, type, connectionId });
     jobLogger.info('Starting sync job');
 
     let syncStarted = false;
@@ -71,8 +87,8 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         });
         syncStarted = true;
 
-        const qbClient = await createQbClient(realmId as string, tenantId);
-        const syncEngine = new SyncEngine(realmId as any, tenantId, qbClient);
+        const qbClient = await createQbClient(typedRealmId, typedTenantId);
+        const syncEngine = new SyncEngine(typedRealmId, typedTenantId, qbClient);
         const results = await syncEngine.runFullSync();
 
         await job.updateProgress(80);
@@ -80,8 +96,8 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
         for (const result of results) {
             await prisma.syncLog.create({
                 data: {
-                    tenantId,
-                    realmId,
+                    tenantId: typedTenantId,
+                    realmId: typedRealmId,
                     entityType: result.entityType,
                     recordsSynced: result.recordsSynced,
                     durationMs: result.durationMs,
@@ -93,16 +109,13 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
 
         await job.updateProgress(90);
 
-        const successfulSyncs = results.filter((r: any) => r.status === 'SUCCESS');
-
-        // FIX: Verify critical transactional entities didn't fail before queueing analysis
+        const successfulSyncs = results.filter((r) => r.status === 'SUCCESS');
         const criticalEntities = ['Invoices', 'Bills', 'Payments', 'VendorCredits'];
-        const criticalFailed = results.some((r: any) =>
+        const criticalFailed = results.some((r) =>
             criticalEntities.includes(r.entityType) && r.status !== 'SUCCESS'
         );
 
         if (successfulSyncs.length > 0 && !criticalFailed) {
-            // FIX: Release the sync lock immediately before queueing analysis
             await prisma.qbConnection.update({
                 where: { id: connectionId },
                 data: {
@@ -111,12 +124,11 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<{ success: b
                     lastSyncMessage: null
                 }
             });
-            syncStarted = false; // Mark sync lock as safely released
+            syncStarted = false;
 
-            // FIX: Add jobId for deduplication
             await analysisQueue.add('run-diagnostics', {
-                realmId,
-                tenantId: tenantId as string,
+                realmId: typedRealmId,
+                tenantId: typedTenantId,
                 connectionId
             }, {
                 jobId: `analysis-${connectionId}-${Date.now()}`,

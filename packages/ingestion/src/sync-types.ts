@@ -1,4 +1,3 @@
-// packages/ingestion/src/sync-types.ts
 import { Prisma, RealmId } from '@qb-health/financial-model';
 
 // ==========================================
@@ -97,15 +96,56 @@ export interface QboTransaction {
 }
 
 // ==========================================
-// 2. MAPPED DATABASE ENTITY TYPES (Prisma Parity)
+// 2. MAPPED RAW DATABASE ENTITY TYPES
 // ==========================================
 
-export type MappedAccount = Prisma.AccountCreateInput;
-export type MappedCustomer = Prisma.CustomerCreateInput;
-export type MappedVendor = Prisma.VendorCreateInput;
+export interface RawAccountRecord {
+    id: string;
+    tenantId: string;
+    realmId: string;
+    qbId: string;
+    name: string;
+    type: string;
+    subType: string | null;
+    currency: string;
+    active: boolean;
+    balance: number;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawCustomerRecord {
+    id: string;
+    tenantId: string;
+    realmId: string;
+    qbId: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    active: boolean;
+    balance: number;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawVendorRecord {
+    id: string;
+    tenantId: string;
+    realmId: string;
+    qbId: string;
+    name: string;
+    email: string | null;
+    active: boolean;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
 
 export interface MappedTransaction {
-    id: string; // Compound ID: ${realmId}-${qbId}
+    id: string;
+    tenantId: string;
     realmId: string;
     qbId: string;
     type: string;
@@ -124,10 +164,11 @@ export interface MappedTransaction {
 }
 
 export interface MappedBankTransaction {
-    id: string; // Compound ID: ${realmId}-${qbId}
+    id: string;
+    tenantId: string;
     realmId: string;
     qbId: string;
-    accountId: string; // Compound ID: ${realmId}-${rawAccountId}
+    accountId: string;
     date: Date;
     amount: Prisma.Decimal;
     description?: string | null;
@@ -140,7 +181,8 @@ export interface MappedBankTransaction {
 }
 
 export interface MappedReconciliation {
-    id: string; // Compound ID: ${realmId}-${qbId}
+    id: string;
+    tenantId: string;
     realmId: string;
     qbId: string;
     accountId: string;
@@ -194,4 +236,5 @@ export interface SyncReport {
 export interface BatchUpsertOptions {
     chunkSize?: number;
     maxRetries?: number;
+    concurrencyLimit?: number;
 }

@@ -1,13 +1,92 @@
-// packages/ingestion/src/mapper.ts
 import { Prisma } from '@qb-health/financial-model';
 
-// --- Domain Branded Types ---
 export type Brand<K, T> = K & { __brand: T };
 export type RealmId = Brand<string, 'RealmId'>;
 export type QbId = Brand<string, 'QbId'>;
-export type TenantId = Brand<string, 'TenantId'>;   // NEW
+export type TenantId = Brand<string, 'TenantId'>;
 export type CompoundId = Brand<string, 'CompoundId'>;
 export type RecordStatus = Brand<'Open' | 'Completed' | 'Void' | 'Paid' | 'Unmatched', 'RecordStatus'>;
+
+export interface RawAccountRecord {
+    id: CompoundId;
+    tenantId: TenantId;
+    realmId: RealmId;
+    qbId: string;
+    name: string;
+    type: string;
+    subType: string | null;
+    currency: string;
+    active: boolean;
+    balance: number;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawCustomerRecord {
+    id: CompoundId;
+    tenantId: TenantId;
+    realmId: RealmId;
+    qbId: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    active: boolean;
+    balance: number;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawVendorRecord {
+    id: CompoundId;
+    tenantId: TenantId;
+    realmId: RealmId;
+    qbId: string;
+    name: string;
+    email: string | null;
+    active: boolean;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawTransactionRecord {
+    id: CompoundId;
+    tenantId: TenantId;
+    realmId: RealmId;
+    qbId: string;
+    type: string;
+    date: Date;
+    amount: Prisma.Decimal;
+    status: RecordStatus;
+    categoryId: string | null;
+    customerId: CompoundId | null;
+    vendorId: CompoundId | null;
+    isReconciled: boolean;
+    rawData: Prisma.InputJsonValue;
+    syncToken: number;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
+
+export interface RawBankTransactionRecord {
+    id: CompoundId;
+    tenantId: TenantId;
+    realmId: RealmId;
+    qbId: string;
+    accountId: CompoundId;
+    date: Date;
+    amount: Prisma.Decimal;
+    description: string;
+    payee: string | null;
+    status: RecordStatus;
+    rawData: Prisma.InputJsonValue;
+    updatedAt: Date;
+    createdAt: Date;
+    lastSyncedAt: Date;
+}
 
 export class Mapper {
     private generateId(realmId: RealmId, qbId: QbId | string): CompoundId {
@@ -34,12 +113,12 @@ export class Mapper {
     mapAccount(
         qbAccount: any,
         realmId: RealmId,
-        tenantId: TenantId,                   // NEW parameter
+        tenantId: TenantId,
         syncSessionStartTime: Date
-    ): Prisma.AccountCreateInput {
+    ): RawAccountRecord {
         return {
             id: this.generateId(realmId, qbAccount.Id),
-            tenantId,                          // NEW field
+            tenantId,
             realmId,
             qbId: qbAccount.Id,
             name: qbAccount.Name || 'Unnamed Account',
@@ -57,12 +136,12 @@ export class Mapper {
     mapCustomer(
         qbCustomer: any,
         realmId: RealmId,
-        tenantId: TenantId,                   // NEW parameter
+        tenantId: TenantId,
         syncSessionStartTime: Date
-    ): Prisma.CustomerCreateInput {
+    ): RawCustomerRecord {
         return {
             id: this.generateId(realmId, qbCustomer.Id),
-            tenantId,                          // NEW field
+            tenantId,
             realmId,
             qbId: qbCustomer.Id,
             name: qbCustomer.DisplayName || qbCustomer.CompanyName || 'Unknown Customer',
@@ -79,12 +158,12 @@ export class Mapper {
     mapVendor(
         qbVendor: any,
         realmId: RealmId,
-        tenantId: TenantId,                   // NEW parameter
+        tenantId: TenantId,
         syncSessionStartTime: Date
-    ): Prisma.VendorCreateInput {
+    ): RawVendorRecord {
         return {
             id: this.generateId(realmId, qbVendor.Id),
-            tenantId,                          // NEW field
+            tenantId,
             realmId,
             qbId: qbVendor.Id,
             name: qbVendor.DisplayName || qbVendor.CompanyName || 'Unknown Vendor',
@@ -99,10 +178,10 @@ export class Mapper {
     mapTransaction(
         qbTransaction: any,
         realmId: RealmId,
-        tenantId: TenantId,                   // NEW parameter
+        tenantId: TenantId,
         type: string,
         syncSessionStartTime: Date
-    ): Prisma.TransactionCreateInput {
+    ): RawTransactionRecord {
         const lines = Array.isArray(qbTransaction.Line) ? qbTransaction.Line : [];
         let rawCategoryId: string | undefined = qbTransaction.DepartmentRef?.value;
         let isReconciled = false;
@@ -136,7 +215,6 @@ export class Mapper {
         const unappliedAmt = qbTransaction.UnappliedAmt !== undefined ? this.safeNumber(qbTransaction.UnappliedAmt) : null;
         const finalAmount = totalAmt ?? amountProp ?? balanceProp ?? 0;
 
-        // Case-Insensitive Status Calculation
         let calculatedStatus: RecordStatus = 'Completed' as RecordStatus;
         const rawStatus = (qbTransaction.Status || '').toLowerCase();
         const privateNote = (qbTransaction.PrivateNote || '').toLowerCase();
@@ -152,14 +230,13 @@ export class Mapper {
             calculatedStatus = 'Open' as RecordStatus;
         }
 
-        // Generate Compound Foreign Keys to prevent FK Constraint Violations
         const rawVendorQbId = (type === 'Bill' && qbTransaction.VendorRef?.value)
             ? qbTransaction.VendorRef.value
             : (qbTransaction.VendorRef?.value || qbTransaction.EntityRef?.value);
 
         return {
             id: this.generateId(realmId, qbTransaction.Id),
-            tenantId,                          // NEW field
+            tenantId,
             realmId,
             qbId: qbTransaction.Id,
             type,
@@ -182,9 +259,9 @@ export class Mapper {
         qbRecord: any,
         entityType: string,
         realmId: RealmId,
-        tenantId: TenantId,                   // NEW parameter
+        tenantId: TenantId,
         syncSessionStartTime: Date
-    ): Prisma.BankTransactionCreateInput {
+    ): RawBankTransactionRecord {
         let rawAccountId: string | undefined;
         let amount = qbRecord.Amount ?? qbRecord.TotalAmt ?? 0;
         let description = qbRecord.PrivateNote || qbRecord.Name || 'Bank Activity';
@@ -220,14 +297,13 @@ export class Mapper {
             }
         }
 
-        // Ensure target account uses Compound ID for Foreign Key alignment
         const targetAccountId = rawAccountId
             ? this.generateId(realmId, rawAccountId)
             : this.generateId(realmId, 'UNKNOWN_ACCOUNT');
 
         return {
             id: this.generateId(realmId, qbRecord.Id),
-            tenantId,                          // NEW field
+            tenantId,
             realmId,
             qbId: qbRecord.Id,
             accountId: targetAccountId,

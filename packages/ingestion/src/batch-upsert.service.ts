@@ -1,8 +1,15 @@
 import { createLogger } from '@qb-health/utils';
 import { RealmId } from '@qb-health/financial-model';
-import { chunk } from './sync-engine';
 import { BatchUpsertOptions } from './sync-types';
 
+
+function chunk<T>(array: T[], size: number): T[][] {
+    const chunked: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunked.push(array.slice(i, i + size));
+    }
+    return chunked;
+}
 export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
     chunkSize?: number;
     concurrencyLimit?: number;
@@ -11,9 +18,6 @@ export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
 export class BatchUpsertService {
     private logger = createLogger({ name: 'BatchUpsertService' });
 
-    /**
-     * Checks if a value is a Prisma/Decimal.js Decimal instance
-     */
     private isDecimal(val: any): boolean {
         return (
             val !== null &&
@@ -41,13 +45,11 @@ export class BatchUpsertService {
         const executing = new Set<Promise<void>>();
 
         const sampleRecord = records[0];
-        const columns = Object.keys(sampleRecord).filter((k) => k !== 'realmId');
-        columns.unshift('realmId');
-
+        const columns = Object.keys(sampleRecord);
         const quotedColumns = columns.map((c) => `"${c}"`).join(', ');
 
         const updateSet = columns
-            .filter((c) => c !== 'realmId' && c !== 'qbId')
+            .filter((c) => c !== 'realmId' && c !== 'tenantId' && c !== 'qbId')
             .map((c) => `"${c}" = EXCLUDED."${c}"`)
             .join(', ');
 
@@ -62,22 +64,20 @@ export class BatchUpsertService {
                         const recordValues: string[] = [];
                         for (const col of columns) {
                             let cast = '';
-                            if (col === 'realmId') {
-                                values.push(realmId);
+                            const val = record[col];
+
+                            if (val instanceof Date) {
+                                values.push(val);
+                            } else if (this.isDecimal(val)) {
+                                values.push(val.toString());
+                                cast = '::numeric';
+                            } else if (typeof val === 'object' && val !== null) {
+                                values.push(JSON.stringify(val));
+                                cast = '::jsonb';
                             } else {
-                                const val = record[col];
-                                if (val instanceof Date) {
-                                    values.push(val);
-                                } else if (this.isDecimal(val)) {
-                                    values.push(val.toString());
-                                    cast = '::numeric';
-                                } else if (typeof val === 'object' && val !== null) {
-                                    values.push(JSON.stringify(val));
-                                    cast = '::jsonb';
-                                } else {
-                                    values.push(val ?? null);
-                                }
+                                values.push(val ?? null);
                             }
+
                             recordValues.push(`$${paramIndex++}${cast}`);
                         }
                         valueStrings.push(`(${recordValues.join(', ')})`);

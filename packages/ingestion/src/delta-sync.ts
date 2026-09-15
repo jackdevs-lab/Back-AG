@@ -12,7 +12,7 @@ interface ExtendedSyncResult extends Omit<SyncResult, 'nextWatermark'> {
 export class DeltaSync {
     private realmId: RealmId;
     private tenantId: TenantId;
-    private logger: any;
+    private logger: ReturnType<typeof createLogger>;
     private mapper: Mapper;
     private batchService: BatchUpsertService;
 
@@ -132,141 +132,151 @@ export class DeltaSync {
         syncSessionStartTime: Date
     ): Promise<ExtendedSyncResult> {
         const startTime = Date.now();
-        const sinceStr = this.formatToPacificOffset(since);
+        const sinceStr = since.toISOString();
 
         let totalSavedCount = 0;
         let maxUpdatedTime = since.getTime();
+        let startPosition = 1;
+        const maxResults = 1000;
+        let hasMore = true;
 
         try {
-            const whereClause = `WHERE MetaData.LastUpdatedTime >= '${sinceStr}'`;
-            const records = await qbClient.query(entityType, whereClause, 500);
+            while (hasMore) {
+                const whereClause = `WHERE MetaData.LastUpdatedTime >= '${sinceStr}' STARTPOSITION ${startPosition} MAXRESULTS ${maxResults}`;
+                const records = await qbClient.query(entityType, whereClause);
 
-            if (!records || records.length === 0) {
-                return this.createSuccessResult(
-                    entityType,
-                    0,
-                    Date.now() - startTime,
-                    since
-                );
-            }
-
-            let savedCount = 0;
-
-            switch (entityType) {
-                case 'Account': {
-                    const mapped = records.map((r: any) =>
-                        this.mapper.mapAccount(
-                            r,
-                            this.realmId,
-                            this.tenantId,
-                            syncSessionStartTime
-                        )
-                    );
-                    savedCount = await this.batchService.batchUpsert(
-                        prisma,
-                        mapped,
-                        'Account',
-                        this.realmId
-                    );
+                if (!records || records.length === 0) {
+                    hasMore = false;
                     break;
                 }
-                case 'Customer': {
-                    const mapped = records.map((r: any) =>
-                        this.mapper.mapCustomer(
-                            r,
-                            this.realmId,
-                            this.tenantId,
-                            syncSessionStartTime
-                        )
-                    );
-                    savedCount = await this.batchService.batchUpsert(
-                        prisma,
-                        mapped,
-                        'Customer',
-                        this.realmId
-                    );
-                    break;
-                }
-                case 'Vendor': {
-                    const mapped = records.map((r: any) =>
-                        this.mapper.mapVendor(
-                            r,
-                            this.realmId,
-                            this.tenantId,
-                            syncSessionStartTime
-                        )
-                    );
-                    savedCount = await this.batchService.batchUpsert(
-                        prisma,
-                        mapped,
-                        'Vendor',
-                        this.realmId
-                    );
-                    break;
-                }
-                default: {
-                    const mapped = records.map((r: any) =>
-                        this.mapper.mapTransaction(
-                            r,
-                            this.realmId,
-                            this.tenantId,
-                            entityType,
-                            syncSessionStartTime
-                        )
-                    );
-                    savedCount = await this.batchService.batchUpsert(
-                        prisma,
-                        mapped,
-                        'Transaction',
-                        this.realmId
-                    );
 
-                    const bankRelatedEntities = [
-                        'Purchase',
-                        'Deposit',
-                        'Transfer',
-                        'JournalEntry',
-                    ];
-                    if (bankRelatedEntities.includes(entityType)) {
-                        const bankMapped = records
-                            .map((r: any) =>
-                                this.mapper.mapToUnifiedBankTransaction(
-                                    r,
-                                    entityType,
-                                    this.realmId,
-                                    this.tenantId,
-                                    syncSessionStartTime
-                                )
+                let savedCount = 0;
+
+                switch (entityType) {
+                    case 'Account': {
+                        const mapped = records.map((r: any) =>
+                            this.mapper.mapAccount(
+                                r,
+                                this.realmId,
+                                this.tenantId,
+                                syncSessionStartTime
                             )
-                            .filter((m: any) => m !== null);
+                        );
+                        savedCount = await this.batchService.batchUpsert(
+                            prisma,
+                            mapped,
+                            'Account',
+                            this.realmId
+                        );
+                        break;
+                    }
+                    case 'Customer': {
+                        const mapped = records.map((r: any) =>
+                            this.mapper.mapCustomer(
+                                r,
+                                this.realmId,
+                                this.tenantId,
+                                syncSessionStartTime
+                            )
+                        );
+                        savedCount = await this.batchService.batchUpsert(
+                            prisma,
+                            mapped,
+                            'Customer',
+                            this.realmId
+                        );
+                        break;
+                    }
+                    case 'Vendor': {
+                        const mapped = records.map((r: any) =>
+                            this.mapper.mapVendor(
+                                r,
+                                this.realmId,
+                                this.tenantId,
+                                syncSessionStartTime
+                            )
+                        );
+                        savedCount = await this.batchService.batchUpsert(
+                            prisma,
+                            mapped,
+                            'Vendor',
+                            this.realmId
+                        );
+                        break;
+                    }
+                    default: {
+                        const mapped = records.map((r: any) =>
+                            this.mapper.mapTransaction(
+                                r,
+                                this.realmId,
+                                this.tenantId,
+                                entityType,
+                                syncSessionStartTime
+                            )
+                        );
+                        savedCount = await this.batchService.batchUpsert(
+                            prisma,
+                            mapped,
+                            'Transaction',
+                            this.realmId
+                        );
 
-                        if (bankMapped.length > 0) {
-                            await this.batchService.batchUpsert(
-                                prisma,
-                                bankMapped,
-                                'BankTransaction',
-                                this.realmId
-                            );
+                        const bankRelatedEntities = [
+                            'Purchase',
+                            'Deposit',
+                            'Transfer',
+                            'JournalEntry',
+                        ];
+                        if (bankRelatedEntities.includes(entityType)) {
+                            const bankMapped = records
+                                .map((r: any) =>
+                                    this.mapper.mapToUnifiedBankTransaction(
+                                        r,
+                                        entityType,
+                                        this.realmId,
+                                        this.tenantId,
+                                        syncSessionStartTime
+                                    )
+                                )
+                                .filter((m: any) => m !== null);
+
+                            if (bankMapped.length > 0) {
+                                await this.batchService.batchUpsert(
+                                    prisma,
+                                    bankMapped,
+                                    'BankTransaction',
+                                    this.realmId
+                                );
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                totalSavedCount += savedCount;
+
+                records.forEach((record: any) => {
+                    if (record.MetaData?.LastUpdatedTime) {
+                        const recordTime = new Date(
+                            record.MetaData.LastUpdatedTime
+                        ).getTime();
+                        if (recordTime > maxUpdatedTime) {
+                            maxUpdatedTime = recordTime;
                         }
                     }
-                    break;
+                });
+
+                if (records.length < maxResults) {
+                    hasMore = false;
+                } else {
+                    startPosition += maxResults;
                 }
             }
 
-            totalSavedCount += savedCount;
-
-            records.forEach((record: any) => {
-                if (record.MetaData && record.MetaData.LastUpdatedTime) {
-                    const recordTime = new Date(
-                        record.MetaData.LastUpdatedTime
-                    ).getTime();
-                    if (recordTime > maxUpdatedTime) {
-                        maxUpdatedTime = recordTime;
-                    }
-                }
-            });
-
-            const nextWatermark = new Date(maxUpdatedTime + 1000);
+            const nextWatermark =
+                maxUpdatedTime > since.getTime()
+                    ? new Date(maxUpdatedTime + 1000)
+                    : syncSessionStartTime;
 
             return this.createSuccessResult(
                 entityType,
@@ -292,7 +302,7 @@ export class DeltaSync {
         entities: SupportedEntityType[],
         since: Date
     ): Promise<void> {
-        const sinceStr = since.toISOString().split('.')[0] + 'Z';
+        const sinceStr = since.toISOString();
         const entitiesParam = entities.join(',');
         const cdcResponse = await qbClient.cdc(entitiesParam, sinceStr);
 
@@ -349,6 +359,13 @@ export class DeltaSync {
                                 qbId: { in: deletedIds },
                             },
                         });
+                        await prisma.bankTransaction.deleteMany({
+                            where: {
+                                tenantId,
+                                realmId: realmIdStr,
+                                qbId: { in: deletedIds },
+                            },
+                        });
                         break;
                 }
 
@@ -392,43 +409,5 @@ export class DeltaSync {
             status: 'FAILED',
             errorMessage: error.message,
         };
-    }
-
-    private formatToPacificOffset(date: Date): string {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Los_Angeles',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hourCycle: 'h23',
-        });
-
-        const parts = formatter.formatToParts(date);
-        const partMap = new Map(parts.map((p) => [p.type, p.value]));
-
-        const year = partMap.get('year');
-        const month = partMap.get('month');
-        const day = partMap.get('day');
-        const hour = partMap.get('hour');
-        const minute = partMap.get('minute');
-        const second = partMap.get('second');
-
-        const tzString = date.toLocaleString('en-US', {
-            timeZone: 'America/Los_Angeles',
-            timeZoneName: 'longOffset',
-        });
-        const offsetMatch = tzString.match(/GMT([+-]\d+)(?::(\d+))?/);
-        let offset = '-07:00';
-        if (offsetMatch) {
-            const sign = offsetMatch[1][0];
-            const hours = offsetMatch[1].slice(1).padStart(2, '0');
-            const minutes = (offsetMatch[2] || '00').padStart(2, '0');
-            offset = `${sign}${hours}:${minutes}`;
-        }
-
-        return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
     }
 }
