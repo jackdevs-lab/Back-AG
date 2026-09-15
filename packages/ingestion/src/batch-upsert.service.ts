@@ -153,7 +153,7 @@ export class BatchUpsertService {
         let query = `
             INSERT INTO "${tableName}" (${quotedColumns})
             VALUES ${valueStrings.join(', ')}
-            ON CONFLICT ("tenantId", "realmId", "qbId")
+            ON CONFLICT ("id")
             ${conflictClause}
         `;
 
