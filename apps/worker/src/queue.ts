@@ -1,4 +1,3 @@
-// apps/worker/src/queue.ts
 import { Queue, QueueEvents } from 'bullmq';
 import { logger } from '@qb-health/utils';
 
@@ -15,7 +14,6 @@ export const analysisQueue = new Queue('qb-analysis', { connection: redisConfig 
 export const syncQueueEvents = new QueueEvents('qb-sync', { connection: redisConfig });
 export const analysisQueueEvents = new QueueEvents('qb-analysis', { connection: redisConfig });
 
-// Log queue events - Keep these light and clean
 syncQueueEvents.on('completed', ({ jobId }) => {
     logger.info('Sync job completed', { jobId });
 });
@@ -24,10 +22,18 @@ syncQueueEvents.on('failed', ({ jobId, failedReason }) => {
     logger.error('Sync job failed', { jobId, reason: failedReason });
 });
 
+syncQueueEvents.on('stalled', ({ jobId }) => {
+    logger.warn('Sync job stalled (worker lock lost)', { jobId });
+});
+
 analysisQueueEvents.on('completed', ({ jobId }) => {
     logger.info('Analysis job completed', { jobId });
 });
 
 analysisQueueEvents.on('failed', ({ jobId, failedReason }) => {
     logger.error('Analysis job failed', { jobId, reason: failedReason });
+});
+
+analysisQueueEvents.on('stalled', ({ jobId }) => {
+    logger.warn('Analysis job stalled (worker lock lost)', { jobId });
 });

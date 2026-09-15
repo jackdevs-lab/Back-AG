@@ -27,17 +27,12 @@ export class BatchUpsertService {
         );
     }
 
-    /**
-     * Deduplicates incoming records in memory by their conflict key to prevent Postgres 23505 errors
-     * when duplicate entries exist within the same batch payload.
-     */
     private deduplicateRecords<T extends Record<string, any>>(records: T[]): T[] {
         const map = new Map<string, T>();
 
         for (const record of records) {
-            // Build composite unique key based on ON CONFLICT columns (tenantId, realmId, qbId)
             const key = `${record.tenantId ?? ''}:${record.realmId ?? ''}:${record.qbId ?? record.id ?? ''}`;
-            map.set(key, record); // Keeps the latest occurrence in the batch
+            map.set(key, record);
         }
 
         return Array.from(map.values());
@@ -50,64 +45,72 @@ export class BatchUpsertService {
         realmId: RealmId,
         options: ExtendedBatchUpsertOptions = {}
     ): Promise<number> {
-        const { chunkSize = 500, concurrencyLimit = 5 } = options;
+        // DEFAULT concurrencyLimit set to 1 to eliminate Postgres row lock contention deadlocks
+        const { chunkSize = 500, concurrencyLimit = 1 } = options;
         let successfulCount = 0;
 
         if (!records || records.length === 0) {
             return successfulCount;
         }
 
-        // 1. Deduplicate records before chunking to satisfy ON CONFLICT requirements
         const uniqueRecords = this.deduplicateRecords(records);
-
         const batches = chunk(uniqueRecords, chunkSize);
-        const executing = new Set<Promise<void>>();
+
+        this.logger.info(`Starting batch upsert for ${tableName}`, {
+            tableName,
+            realmId,
+            totalRecords: records.length,
+            uniqueRecords: uniqueRecords.length,
+            batchCount: batches.length
+        });
 
         const sampleRecord = uniqueRecords[0];
         const columns = Object.keys(sampleRecord);
         const quotedColumns = columns.map((c) => `"${c}"`).join(', ');
 
-        // 2. Exclude primary keys and immutable columns from the UPDATE clause
         const immutableColumns = new Set(['id', 'createdAt', 'realmId', 'tenantId', 'qbId']);
         const updateColumns = columns.filter((c) => !immutableColumns.has(c));
 
-        // Fallback: If all columns are keys, fallback to DO NOTHING behavior
         const updateSet = updateColumns.length > 0
             ? updateColumns.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')
             : null;
 
-        for (const batch of batches) {
-            const batchPromise = (async () => {
-                try {
-                    const count = await this.executeBatchQuery(prisma, tableName, columns, quotedColumns, updateSet, batch);
-                    successfulCount += count;
-                } catch (error) {
-                    const errorObj = error instanceof Error ? error : new Error(String(error));
-                    this.logger.warn(`Batch upsert failed for table ${tableName}. Attempting single-row fallback isolation.`, {
-                        tableName,
-                        realmId,
-                        batchSize: batch.length,
-                        error: errorObj.message,
-                    });
+        // Process batches sequentially or with controlled concurrency
+        for (let i = 0; i < batches.length; i += concurrencyLimit) {
+            const currentBatches = batches.slice(i, i + concurrencyLimit);
 
-                    // 3. Fallback: Retry individual items to skip bad rows without crashing the queue job
-                    const fallbackCount = await this.executeIndividualFallback(prisma, tableName, columns, quotedColumns, updateSet, batch, realmId);
-                    successfulCount += fallbackCount;
-                }
-            })();
+            await Promise.all(
+                currentBatches.map(async (batch, index) => {
+                    const batchNum = i + index + 1;
+                    try {
+                        const count = await this.executeBatchQuery(prisma, tableName, columns, quotedColumns, updateSet, batch);
+                        successfulCount += count;
+                        this.logger.info(`Completed batch ${batchNum}/${batches.length} for ${tableName}`, {
+                            tableName,
+                            realmId,
+                            batchSize: batch.length
+                        });
+                    } catch (error) {
+                        const errorObj = error instanceof Error ? error : new Error(String(error));
+                        this.logger.warn(`Batch ${batchNum} failed for ${tableName}. Executing single-row fallback.`, {
+                            tableName,
+                            realmId,
+                            error: errorObj.message
+                        });
 
-            const p = batchPromise.then(() => {
-                executing.delete(p);
-            });
-
-            executing.add(p);
-
-            if (executing.size >= concurrencyLimit) {
-                await Promise.race(executing);
-            }
+                        const fallbackCount = await this.executeIndividualFallback(prisma, tableName, columns, quotedColumns, updateSet, batch, realmId);
+                        successfulCount += fallbackCount;
+                    }
+                })
+            );
         }
 
-        await Promise.all(executing);
+        this.logger.info(`Finished batch upsert for ${tableName}`, {
+            tableName,
+            realmId,
+            successfulCount
+        });
+
         return successfulCount;
     }
 
@@ -181,10 +184,10 @@ export class BatchUpsertService {
                 saved++;
             } catch (err) {
                 const errorObj = err instanceof Error ? err : new Error(String(err));
-                this.logger.error(`Skipping record permanently due to database error in table ${tableName}`, errorObj, {
+                this.logger.error(`Skipping record in ${tableName}`, errorObj, {
                     tableName,
                     realmId,
-                    qbId: singleRecord.qbId,
+                    qbId: singleRecord.qbId
                 });
             }
         }

@@ -26,7 +26,6 @@ async function clearStaleSyncStates() {
             where: { syncStatus: 'SYNCING' },
             data: {
                 syncStatus: 'ERROR',
-                // FIX: Updated to an accurate error message
                 lastSyncMessage: 'Sync interrupted due to worker process restart.'
             }
         });
@@ -38,49 +37,56 @@ async function clearStaleSyncStates() {
     }
 }
 
-clearStaleSyncStates();
+async function startWorkers() {
+    // 1. Ensure stale states are fully cleared before workers start taking jobs
+    await clearStaleSyncStates();
 
-const syncWorker = new Worker(
-    'qb-sync',
-    syncProcessor,
-    {
-        connection: redisConfig,
-        concurrency: 1
-    }
-);
+    // 2. Worker setup with extended lock duration (5 mins) to prevent false-positive job stalls
+    const syncWorker = new Worker(
+        'qb-sync',
+        syncProcessor,
+        {
+            connection: redisConfig,
+            concurrency: 1,
+            lockDuration: 300000, // 5 minutes
+            lockRenewTime: 15000,   // Heartbeat every 15s
+            maxStalledCount: 2
+        }
+    );
 
-// FIX: Removed syncWorker.on('completed') and syncWorker.on('failed') to prevent duplicate logs (handled by queue.ts)
+    const analysisWorker = new Worker<AnalysisJobData, {
+        success: boolean;
+        diagnosticRunId: string;
+        healthScore: number;
+        issueCount: number;
+    }>(
+        'qb-analysis',
+        analysisProcessor,
+        {
+            connection: redisConfig,
+            concurrency: 2,
+            lockDuration: 300000, // 5 minutes
+            lockRenewTime: 15000,
+            maxStalledCount: 2
+        }
+    );
 
-const analysisWorker = new Worker<AnalysisJobData, {
-    success: boolean;
-    diagnosticRunId: string;
-    healthScore: number;
-    issueCount: number;
-}>(
-    'qb-analysis',
-    analysisProcessor,
-    {
-        connection: redisConfig,
-        concurrency: 3
-    }
-);
+    const shutdown = async (signal: string) => {
+        logger.info(`Received ${signal}. Shutting down workers...`);
+        await syncWorker.close();
+        await analysisWorker.close();
+        await prisma.$disconnect();
+        logger.info('Workers and database connection shut down cleanly');
+        process.exit(0);
+    };
 
-// FIX: Removed analysisWorker.on('completed') and analysisWorker.on('failed') to prevent duplicate logs (handled by queue.ts)
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
-process.on('SIGTERM', async () => {
-    logger.info('Shutting down workers...');
-    await syncWorker.close();
-    await analysisWorker.close();
-    logger.info('Workers shut down');
-    process.exit(0);
+    logger.info('Worker started successfully');
+}
+
+startWorkers().catch((err) => {
+    logger.error('Fatal error starting worker process', err);
+    process.exit(1);
 });
-
-process.on('SIGINT', async () => {
-    logger.info('Shutting down workers...');
-    await syncWorker.close();
-    await analysisWorker.close();
-    logger.info('Workers shut down');
-    process.exit(0);
-});
-
-logger.info('Worker started');
