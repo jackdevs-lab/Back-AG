@@ -174,51 +174,60 @@ export class QbApiClient {
         };
     }
 
-    async query<T>(entityType: string, whereClause: string = '', maxResults: number = 1000): Promise<T[]> {
-        const allResults: T[] = [];
-        let startPosition = 1;
+    /**
+     * Fetch a single page of records for an entity.
+     *
+     * Pagination is owned by the caller (see SyncEngine.fetchAndProcessPaged).
+     * This method issues exactly one HTTP request and returns exactly one page.
+     *
+     * @param entityType    QB entity, e.g. "Customer"
+     * @param whereClause   Optional clause including the leading WHERE, e.g. "WHERE Active = true"
+     * @param pageSize      1..1000 (QB hard cap)
+     * @param startPosition 1-based offset
+     */
+    async query<T>(
+        entityType: string,
+        whereClause: string = '',
+        pageSize: number = 500,
+        startPosition: number = 1
+    ): Promise<T[]> {
+        const safePageSize = Math.min(Math.max(1, pageSize), 1000);
+        const safeStartPosition = Math.max(1, startPosition);
 
-        const safeMaxResults = Math.min(Math.max(1, maxResults), 1000);
+        const queryString =
+            `SELECT * FROM ${entityType} ${whereClause} ` +
+            `MAXRESULTS ${safePageSize} STARTPOSITION ${safeStartPosition}`
+                .replace(/\s+/g, ' ')
+                .trim();
 
-        do {
-            const query = `SELECT * FROM ${entityType} ${whereClause} MAXRESULTS ${safeMaxResults} STARTPOSITION ${startPosition}`.trim();
+        try {
+            const response = await this.client.get<QbQueryResponse<T>>(
+                `/company/${this.realmId}/query`,
+                { params: { query: queryString } }
+            );
 
-            try {
-                const response = await this.client.get<QbQueryResponse<T>>(`/company/${this.realmId}/query`, {
-                    params: { query }
-                });
+            const queryResponse = response.data?.QueryResponse || {};
 
-                const queryResponse = response.data?.QueryResponse || {};
+            const matchedKey = Object.keys(queryResponse).find(
+                (key) => key.toLowerCase() === entityType.toLowerCase()
+            );
 
-                const matchedKey = Object.keys(queryResponse).find(
-                    (key) => key.toLowerCase() === entityType.toLowerCase()
-                );
+            return (matchedKey ? queryResponse[matchedKey] : []) as T[];
+        } catch (error) {
+            const axiosError = error as AxiosError;
+            const qbFault = this.extractQbFault(axiosError);
 
-                const results = (matchedKey ? queryResponse[matchedKey] : []) as T[];
-                allResults.push(...results);
-
-                startPosition += safeMaxResults;
-
-                if (results.length < safeMaxResults) {
-                    break;
-                }
-            } catch (error) {
-                const axiosError = error as AxiosError;
-                const qbFault = this.extractQbFault(axiosError);
-
-                logger.error('QB Query failed', axiosError, {
-                    entityType,
-                    startPosition,
-                    safeMaxResults,
-                    realmId: this.realmId,
-                    tenantId: this.tenantId,
-                    qbFault
-                });
-                throw error;
-            }
-        } while (true);
-
-        return allResults;
+            logger.error('QB Query failed', axiosError, {
+                entityType,
+                whereClause,
+                pageSize: safePageSize,
+                startPosition: safeStartPosition,
+                realmId: this.realmId,
+                tenantId: this.tenantId,
+                qbFault
+            });
+            throw error;
+        }
     }
 
     async cdc(entities: string[], changedSince: string): Promise<QbCdcResponse> {

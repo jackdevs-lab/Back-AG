@@ -128,36 +128,62 @@ export class SyncEngine {
         }
     }
 
-
+    /**
+     * Paginates an entity fetch one page at a time and hands each page to processBatch.
+     *
+     * Pagination is owned HERE, not by QbApiClient. The client's query() is a
+     * single-page primitive: it takes pageSize + startPosition and returns one page.
+     *
+     * Terminates when:
+     *   - the server returns zero records, or
+     *   - the server returns fewer than pageSize records (last page).
+     *
+     * A hard page ceiling guards against an infinite loop if the caller ever
+     * mis-constructs a whereClause or the server misbehaves.
+     */
     private async fetchAndProcessPaged(
-
         entity: string,
         whereClause: string,
         processBatch: (batch: any[]) => Promise<number>,
         pageSize = 500
     ): Promise<number> {
         let startPosition = 1;
-        let moreRecords = true;
         let totalProcessed = 0;
+        let pageCount = 0;
 
+        // 1000 pages × 500 = 500,000 records. If we ever exceed this, something is
+        // wrong and we want a loud failure rather than a silent runaway loop.
+        const MAX_PAGES = 1000;
 
-        while (moreRecords) {
-            const pageQuery = `${whereClause} STARTPOSITION ${startPosition} MAXRESULTS ${pageSize}`.trim();
-            const rawRecords = await this.qbClient.query<any>(entity, pageQuery);
+        while (true) {
+            const rawRecords = await this.qbClient.query<any>(
+                entity,
+                whereClause,
+                pageSize,
+                startPosition
+            );
 
-            this.logger.info('paged fetch', { entity, startPosition, returned: rawRecords?.length });
+            const returned = rawRecords?.length ?? 0;
 
-            if (!rawRecords || rawRecords.length === 0) {
-                moreRecords = false;
+            this.logger.info('paged fetch', { entity, startPosition, returned });
+
+            if (returned === 0) {
                 break;
             }
 
             totalProcessed += await processBatch(rawRecords);
 
-            if (rawRecords.length < pageSize) {
-                moreRecords = false;
-            } else {
-                startPosition += pageSize;
+            if (returned < pageSize) {
+                break;
+            }
+
+            startPosition += pageSize;
+
+            if (++pageCount >= MAX_PAGES) {
+                throw new Error(
+                    `fetchAndProcessPaged exceeded ${MAX_PAGES} pages for ${entity} ` +
+                    `at startPosition ${startPosition}. Aborting to prevent runaway loop.`
+                );
             }
         }
 
