@@ -110,7 +110,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
         await job.updateProgress(90);
 
         const successfulSyncs = results.filter((r) => r.status === 'SUCCESS');
-        const criticalEntities = ['Invoices', 'Bills', 'Payments', 'VendorCredits'];
+        const criticalEntities = ['Invoice', 'Bill', 'Payment', 'VendorCredit'];
         const criticalFailed = results.some((r) =>
             criticalEntities.includes(r.entityType) && r.status !== 'SUCCESS'
         );

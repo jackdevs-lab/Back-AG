@@ -12,13 +12,15 @@ interface ExtendedSyncResult extends Omit<SyncResult, 'nextWatermark'> {
 export class DeltaSync {
     private realmId: RealmId;
     private tenantId: TenantId;
+    private connectionId?: string;
     private logger: ReturnType<typeof createLogger>;
     private mapper: Mapper;
     private batchService: BatchUpsertService;
 
-    constructor(realmId: RealmId, tenantId: string) {
+    constructor(realmId: RealmId, tenantId: string, connectionId?: string) {
         this.realmId = realmId;
         this.tenantId = tenantId as TenantId;
+        this.connectionId = connectionId;
         this.logger = createLogger({ realmId, tenantId });
         this.mapper = new Mapper();
         this.batchService = new BatchUpsertService();
@@ -49,6 +51,8 @@ export class DeltaSync {
             'Transfer',
         ];
 
+        let earliestWatermark = syncSessionStartTime;
+
         for (const entityType of entities) {
             try {
                 const entityLastSync = await prisma.qbSyncState.findUnique({
@@ -61,6 +65,10 @@ export class DeltaSync {
                 });
 
                 const since = entityLastSync?.lastSyncAt || new Date(0);
+                if (since < earliestWatermark) {
+                    earliestWatermark = since;
+                }
+
                 const adjustedSince = new Date(since.getTime() - 30000);
 
                 const result = await this.syncEntity(
@@ -108,7 +116,8 @@ export class DeltaSync {
         }
 
         try {
-            await this.syncDeletions(qbClient, entities, syncSessionStartTime);
+            // Track deletions since the earliest watermark among all entities
+            await this.syncDeletions(qbClient, entities, earliestWatermark);
         } catch (error) {
             this.logger.error('Deletion sync failed', error as Error);
         }
@@ -301,82 +310,103 @@ export class DeltaSync {
         qbClient: any,
         entities: SupportedEntityType[],
         since: Date
-    ): Promise<void> {
+    ): Promise<string[]> {
         const sinceStr = since.toISOString();
-        const entitiesParam = entities.join(',');
-        const cdcResponse = await qbClient.cdc(entitiesParam, sinceStr);
+        const cdcResponse = await qbClient.cdc(entities, sinceStr);
 
-        if (!cdcResponse || !cdcResponse.CDCResponse) return;
+        if (!cdcResponse || !cdcResponse.CDCResponse) return [];
+
+        const allDeletedQbIds: string[] = [];
 
         for (const cdcEntity of cdcResponse.CDCResponse) {
-            const entityName = Object.keys(cdcEntity.QueryResponse[0] || {})[0];
-            if (!entityName) continue;
+            for (const queryResp of cdcEntity.QueryResponse || []) {
+                const deletedObjects = queryResp.deletedObject || [];
+                if (deletedObjects.length === 0) continue;
 
-            const records = cdcEntity.QueryResponse[0][entityName];
-            if (!records) continue;
+                const deletedByEntity: Record<string, string[]> = {};
+                for (const item of deletedObjects) {
+                    if (!item.name || !item.id) continue;
+                    if (!deletedByEntity[item.name]) {
+                        deletedByEntity[item.name] = [];
+                    }
+                    deletedByEntity[item.name].push(String(item.id));
+                    allDeletedQbIds.push(String(item.id));
+                }
 
-            const deletedIds = records
-                .filter((r: any) => r.status === 'Deleted')
-                .map((r: any) => r.Id);
-
-            if (deletedIds.length > 0) {
                 const realmIdStr = String(this.realmId);
                 const tenantId = String(this.tenantId);
 
-                switch (entityName) {
-                    case 'Account':
-                        await prisma.account.deleteMany({
-                            where: {
-                                tenantId,
-                                realmId: realmIdStr,
-                                qbId: { in: deletedIds },
-                            },
-                        });
-                        break;
-                    case 'Customer':
-                        await prisma.customer.deleteMany({
-                            where: {
-                                tenantId,
-                                realmId: realmIdStr,
-                                qbId: { in: deletedIds },
-                            },
-                        });
-                        break;
-                    case 'Vendor':
-                        await prisma.vendor.deleteMany({
-                            where: {
-                                tenantId,
-                                realmId: realmIdStr,
-                                qbId: { in: deletedIds },
-                            },
-                        });
-                        break;
-                    default:
-                        await prisma.transaction.deleteMany({
-                            where: {
-                                tenantId,
-                                realmId: realmIdStr,
-                                qbId: { in: deletedIds },
-                            },
-                        });
-                        await prisma.bankTransaction.deleteMany({
-                            where: {
-                                tenantId,
-                                realmId: realmIdStr,
-                                qbId: { in: deletedIds },
-                            },
-                        });
-                        break;
-                }
+                for (const [entityName, deletedIds] of Object.entries(deletedByEntity)) {
+                    if (deletedIds.length === 0) continue;
 
-                this.logger.info(
-                    `Purged ${deletedIds.length} deleted ${entityName} records`,
-                    {
-                        realmId: this.realmId,
-                        tenantId: this.tenantId,
+                    switch (entityName) {
+                        case 'Account':
+                            await prisma.account.deleteMany({
+                                where: { tenantId, realmId: realmIdStr, qbId: { in: deletedIds } },
+                            });
+                            break;
+                        case 'Customer':
+                            await prisma.customer.deleteMany({
+                                where: { tenantId, realmId: realmIdStr, qbId: { in: deletedIds } },
+                            });
+                            break;
+                        case 'Vendor':
+                            await prisma.vendor.deleteMany({
+                                where: { tenantId, realmId: realmIdStr, qbId: { in: deletedIds } },
+                            });
+                            break;
+                        default:
+                            await prisma.transaction.deleteMany({
+                                where: { tenantId, realmId: realmIdStr, qbId: { in: deletedIds } },
+                            });
+                            await prisma.bankTransaction.deleteMany({
+                                where: { tenantId, realmId: realmIdStr, qbId: { in: deletedIds } },
+                            });
+                            break;
                     }
-                );
+
+                    this.logger.info(
+                        `Purged ${deletedIds.length} deleted ${entityName} records`,
+                        { realmId: this.realmId, tenantId: this.tenantId }
+                    );
+                }
             }
+        }
+
+        if (allDeletedQbIds.length > 0) {
+            await this.autoResolveDeletedIssues(allDeletedQbIds);
+        }
+
+        return allDeletedQbIds;
+    }
+
+    private async autoResolveDeletedIssues(deletedQbIds: string[]): Promise<void> {
+        const whereCondition = this.connectionId
+            ? { connectionId: String(this.connectionId), isResolved: false }
+            : { tenantId: String(this.tenantId), realmId: String(this.realmId), isResolved: false };
+
+        const openIssues = await prisma.issue.findMany({
+            where: whereCondition,
+            select: { id: true, entities: true },
+        });
+
+        const issueIdsToResolve = openIssues
+            .filter((issue) => {
+                const entityList = (issue.entities as Array<{ qbId: string }>) || [];
+                return entityList.some((e) => deletedQbIds.includes(String(e.qbId)));
+            })
+            .map((issue) => issue.id);
+
+        if (issueIdsToResolve.length > 0) {
+            await prisma.issue.updateMany({
+                where: { id: { in: issueIdsToResolve } },
+                data: { isResolved: true, resolvedAt: new Date() },
+            });
+
+            this.logger.info(
+                `Auto-resolved ${issueIdsToResolve.length} issues corresponding to deleted QBO entities`,
+                { realmId: this.realmId, tenantId: this.tenantId }
+            );
         }
     }
 
