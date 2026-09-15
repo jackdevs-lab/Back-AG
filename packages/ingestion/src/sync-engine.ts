@@ -128,7 +128,9 @@ export class SyncEngine {
         }
     }
 
+
     private async fetchAndProcessPaged(
+
         entity: string,
         whereClause: string,
         processBatch: (batch: any[]) => Promise<number>,
@@ -138,9 +140,12 @@ export class SyncEngine {
         let moreRecords = true;
         let totalProcessed = 0;
 
+
         while (moreRecords) {
             const pageQuery = `${whereClause} STARTPOSITION ${startPosition} MAXRESULTS ${pageSize}`.trim();
             const rawRecords = await this.qbClient.query<any>(entity, pageQuery);
+
+            this.logger.info('paged fetch', { entity, startPosition, returned: rawRecords?.length });
 
             if (!rawRecords || rawRecords.length === 0) {
                 moreRecords = false;
