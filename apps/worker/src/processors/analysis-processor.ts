@@ -16,6 +16,7 @@ export interface AnalysisJobData {
 const MAX_ROW_BYTES = Number(process.env.MAX_ROW_BYTES ?? 100 * 1024);           // 100 KB
 const BATCH_BYTES = Number(process.env.BULK_INSERT_BATCH_BYTES ?? 5 * 1024 * 1024); // 5 MB
 const TX_TIMEOUT_MS = Number(process.env.BULK_INSERT_TX_TIMEOUT_MS ?? 60_000);
+const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES ?? 16 * 1024);      // 16 KB
 
 type IssueRow = {
     id: string;
@@ -32,6 +33,18 @@ type IssueEntityRow = {
     issueId: string;
     entityId: string;
 };
+
+/**
+ * Truncates a message to MAX_MESSAGE_BYTES, preserving UTF-8 boundaries.
+ * Messages are for humans; anything larger than a few KB is a rule-design
+ * problem that belongs in `entities` or `metadata`, not in the message string.
+ */
+function truncateMessage(msg: unknown): string {
+    const s = typeof msg === 'string' ? msg : String(msg ?? '');
+    if (byteSize(s) <= MAX_MESSAGE_BYTES) return s;
+    const buf = Buffer.from(s, 'utf8').slice(0, MAX_MESSAGE_BYTES - 32);
+    return buf.toString('utf8').replace(/\uFFFD+$/, '') + ' … [truncated]';
+}
 
 export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     success: boolean;
@@ -81,9 +94,26 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         // ─── Phase 1: split issues into Issue + IssueEntity rows ───────────────
         const issueRows: IssueRow[] = [];
         const entityRows: IssueEntityRow[] = [];
+        let truncatedCount = 0;
 
         for (const issue of issues as any[]) {
             const issueId = randomUUID();
+
+            const originalMessage = typeof issue.message === 'string'
+                ? issue.message
+                : String(issue.message ?? '');
+            const truncated = truncateMessage(originalMessage);
+            if (truncated !== originalMessage) {
+                truncatedCount++;
+                // One-line diagnostic so you can find the fat rule. Remove once
+                // the offending rule emits a bounded message.
+                jobLogger.warn('Issue message truncated', {
+                    ruleId: issue.ruleId,
+                    originalBytes: byteSize(originalMessage),
+                    truncatedBytes: byteSize(truncated),
+                    head: originalMessage.slice(0, 200),
+                });
+            }
 
             issueRows.push({
                 id: issueId,
@@ -93,7 +123,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                 ruleId: issue.ruleId,
                 ruleName: issue.ruleName,
                 severity: issue.severity,
-                message: typeof issue.message === 'string' ? issue.message : String(issue.message ?? ''),
+                message: truncated,
             });
 
             const list = Array.isArray(issue.entities) ? issue.entities : [];
@@ -125,6 +155,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             entityRows: entityRows.length,
             issueChunks: issueChunks.length,
             entityChunks: entityChunks.length,
+            truncatedMessages: truncatedCount,
         });
 
         // Insert issues first, then entities — all in one transaction so a
@@ -146,7 +177,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             category: check.category,
             severity: check.severity,
             status: check.status,
-            message: check.message,
+            message: truncateMessage(check.message),
             durationMs: check.durationMs,
         }));
 
@@ -173,6 +204,8 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         const infoCount = issueRows.filter(i => i.severity === 'INFO').length;
         const entitiesAffected = entityRows.length;   // Phase 1: count from the split rows
 
+        // NOTE: exposure extraction uses the ORIGINAL issue.message (not the
+        // truncated one) so truncation cannot silently drop an exposure figure.
         const seenRuleAmounts = new Map<string, Map<string, number>>();
         for (const issue of issues as any[]) {
             const ruleId: string = issue.ruleId;
@@ -220,6 +253,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                     entitiesAffected,
                     totalExposure: totalExposureStr,
                     currencyBreakdown,
+                    truncatedMessages: truncatedCount,
                 },
             },
         });
@@ -249,6 +283,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             score: scoreBreakdown.finalScore,
             issueCount: issueRows.length,
             entityCount: entityRows.length,
+            truncatedMessages: truncatedCount,
         });
 
         return {
