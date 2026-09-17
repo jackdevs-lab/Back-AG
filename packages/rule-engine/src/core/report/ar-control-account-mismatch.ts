@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportItem } from '../shared/report-utils';
+import { formatStandardReport, ReportItem, formatStandardSummary } from '../shared/report-utils';
 
 export function formatReport(reportData: any, unscannable: any[] = []): string {
     const items: ReportItem[] = reportData.findingsForDisplay.map((f: any) => ({
@@ -20,5 +20,16 @@ export function formatReport(reportData: any, unscannable: any[] = []): string {
         items: items,
         recommendation: 'Verify your AR Aging Summary against your Balance Sheet. Ensure no Journal Entries are posted to the Accounts Receivable account without an assigned customer name.',
         summaryData: reportData.findingsSummary
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    const findingsCount = reportData?.findingsSummary?.count ?? reportData?.findings?.length ?? 0;
+
+    return formatStandardSummary({
+        action: 'ar control account mismatch',
+        findingsCount,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Verify AR Aging Summary against Balance Sheet. Ensure no Journal Entries are posted to AR without an assigned customer.'
     });
 }

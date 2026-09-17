@@ -1,4 +1,3 @@
-//packages/rule-engine/src/core/report/bill-date-in-future.ts
 import { formatStandardReport } from '../shared/report-utils';
 import { EnrichedFinding } from '../shared/base-schemas';
 
@@ -49,4 +48,31 @@ export function formatReport(
         summaryData: reportData?.findingsSummary || reportData,
         recommendation: 'Verify the bill dates in QuickBooks. If they are data entry errors, correct them. If they are intentional prepayments, consider using a Prepaid Expense account instead.'
     });
+}
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    const findings = Array.isArray(reportData) ? reportData : (reportData?.findingsForDisplay || reportData?.findings || []);
+    const findingsCount = findings.length;
+    const unscannableCount = unscannable.length;
+    const action = 'future-dated bills';
+
+    if (findingsCount === 0 && unscannableCount === 0) {
+        return `No ${action} detected.`;
+    }
+
+    const nStr = findingsCount.toLocaleString('en-US');
+    let summary = `Found ${nStr} ${action}`;
+
+    if (unscannableCount > 0) {
+        const mStr = unscannableCount.toLocaleString('en-US');
+        summary += ` and ${mStr} unscannable records.`;
+    } else {
+        summary += '.';
+    }
+
+    if (findingsCount > 0) {
+        summary += ' Verify the bill dates in QuickBooks. If intentional prepayments, consider using a Prepaid Expense account.';
+    }
+
+    return summary;
 }

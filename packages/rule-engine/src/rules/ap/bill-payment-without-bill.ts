@@ -1,10 +1,9 @@
-// rule/orchestrator/index.ts (version production)
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
-import { transactionGenerator, normalizeTransactionBatch, fetchVendorsByQbIds } from '../../core/shared/data-primitives';
+import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/bill-payment-without-bill';
+import { formatSummary } from '../../core/report/bill-payment-without-bill';
 import { z } from 'zod';
 
 type NormalizedBatch = {
@@ -96,20 +95,7 @@ export class BillPaymentWithoutBillRule implements IRule {
                 });
             })
             .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                const vendorIds = [...new Set(reportData.findingsForDisplay.map((e: any) => e.metadata?.vendorId).filter(Boolean))] as string[];
-
-                let vendorMap = new Map<string, string>();
-                if (vendorIds.length > 0) {
-                    const vendors = await fetchVendorsByQbIds(ctx.repo, { realmId: ctx.realmId, vendorQbIds: vendorIds as any[] });
-                    vendorMap = new Map(vendors.map((v: any) => [String(v.qbId), String(v.name)]));
-                }
-
-                const enrichedDisplay = reportData.findingsForDisplay.map((f: any) => ({
-                    ...f,
-                    vendorName: vendorMap.get(f.metadata?.vendorId) || 'Unidentified Vendor'
-                }));
-
-                return formatReport(ctx.realmId, { ...reportData, findingsForDisplay: enrichedDisplay }, normErrors);
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

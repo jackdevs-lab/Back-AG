@@ -1,12 +1,11 @@
-﻿//(production ready version)
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillRawSchema, PurchaseRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/expense-instead-of-bill-payment';
+import { formatSummary } from '../../core/report/expense-instead-of-bill-payment';
 
 const ExpenseVsBillSchema = z.union([BillRawSchema, PurchaseRawSchema]);
 type TransactionType = z.infer<typeof ExpenseVsBillSchema> & {
@@ -97,8 +96,8 @@ export class ExpenseInsteadOfBillPaymentRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, unscannableErrors: any[]) => {
-                return formatReport(reportData, unscannableErrors);
+            .withReporting((reportData: any, ctx: RuleContext, unscannableErrors: any[]) => {
+                return formatSummary(reportData, unscannableErrors);
             })
             .execute();
     }

@@ -1,11 +1,10 @@
-//(production ready)
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch, fetchRuleConfig } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/negative-ap-balance';
+import { formatSummary } from '../../core/report/negative-ap-balance';
 
 type NormalizedBill = any & { qboData: z.infer<typeof BillRawSchema> };
 type NormalizationOutput = { normalized: NormalizedBill[]; unscannable: any[] };
@@ -83,7 +82,7 @@ export class NegativeApBalanceRule implements IRule {
                 });
             })
             .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

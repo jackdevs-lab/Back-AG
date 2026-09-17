@@ -1,4 +1,4 @@
-import { formatStandardReport, PipelineSummary } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary, PipelineSummary } from '../shared/report-utils';
 
 export function formatReport(
     realmId: string,
@@ -24,4 +24,16 @@ export function formatReport(
     });
 
     return report + blindSpotsSection;
+}
+
+export function formatSummary(
+    reportData: { findingsSummary: PipelineSummary, findingsForDisplay: any[] },
+    unscannable: any[] = []
+): string {
+    return formatStandardSummary({
+        action: 'bills without vendor',
+        findingsCount: reportData?.findingsSummary?.count ?? 0,
+        unscannableCount: unscannable.length,
+        recommendation: 'Review high-exposure items immediately to resolve unassigned liabilities.'
+    });
 }

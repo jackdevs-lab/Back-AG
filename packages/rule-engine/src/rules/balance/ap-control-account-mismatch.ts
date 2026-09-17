@@ -1,4 +1,3 @@
-//(production ready)
 import { Prisma } from '@qb-health/financial-model';
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -7,7 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { JournalEntryRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { isMismatch } from '../../core/detect/ap-control-account-mismatch';
-import { formatReport } from '../../core/report/ap-control-account-mismatch';
+import { formatSummary } from '../../core/report/ap-control-account-mismatch';
 
 type JournalEntryRaw = z.infer<typeof JournalEntryRawSchema>;
 type TransactionBatchItem = { qbId: string; date: Date; amount: Prisma.Decimal; rawData: any };
@@ -92,7 +91,7 @@ export class ApControlAccountMismatchRule implements IRule {
                 }));
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
-                return formatReport(reportData, unscannable);
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

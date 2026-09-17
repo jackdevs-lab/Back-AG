@@ -1,4 +1,3 @@
-//(production ready)
 import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -6,7 +5,7 @@ import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, fetchRuleConfig, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/bill-without-vendor';
+import { formatSummary } from '../../core/report/bill-without-vendor';
 
 type RawBatch = any[];
 type NormalizedBill = any & { qboData: z.infer<typeof BillRawSchema> };
@@ -84,7 +83,7 @@ export class BillWithoutVendorRule implements IRule {
                 });
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
-                return formatReport(ctx.realmId, reportData, unscannable);
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

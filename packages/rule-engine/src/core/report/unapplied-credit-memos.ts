@@ -1,6 +1,6 @@
 import { RuleContext } from '../../types';
 import { fetchCustomersByQbIds } from '../../core/shared/data-primitives';
-import { formatStandardReport, ReportItem } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary, ReportItem } from '../../core/shared/report-utils';
 
 export async function formatReport(
     reportData: any,
@@ -49,5 +49,15 @@ export async function formatReport(
         metadata: {
             unscannableCount: normErrors.length
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsSummary?.count ?? reportData?.findingsForDisplay?.length ?? 0;
+    return formatStandardSummary({
+        action: 'unapplied customer credit memos',
+        findingsCount,
+        unscannableCount: unscannable.length,
+        recommendation: 'Review these credit memos and apply them to open invoices or issue refunds.'
     });
 }

@@ -5,7 +5,7 @@ import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { InvoiceRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/overdue-invoice';
+import { formatSummary } from '../../core/report/overdue-invoice';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof InvoiceRawSchema> })[];
@@ -90,8 +90,8 @@ export class OverdueInvoiceRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

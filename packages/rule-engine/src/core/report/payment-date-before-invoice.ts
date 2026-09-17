@@ -1,5 +1,5 @@
 import { RuleContext } from '../../types';
-import { formatStandardReport } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary } from '../../core/shared/report-utils';
 import { fetchCustomersByQbIds } from '../shared/data-primitives';
 
 export async function formatReport(reportData: any, ctx: RuleContext, normErrors: any[]): Promise<string> {
@@ -29,5 +29,17 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         metadata: {
             unscannableItems: normErrors
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsSummary?.count || 0;
+    const unscannableCount = unscannable?.length || 0;
+
+    return formatStandardSummary({
+        action: 'payment date before invoice',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Ensure payment and invoice dates are accurate to maintain correct aging reports.'
     });
 }

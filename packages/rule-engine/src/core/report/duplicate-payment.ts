@@ -1,6 +1,6 @@
 import { RuleContext } from '../../types';
 import { fetchCustomersByQbIds } from '../shared/data-primitives';
-import { formatStandardReport } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary } from '../shared/report-utils';
 
 export async function formatReport(reportData: any, ctx: RuleContext, normErrors: any[]): Promise<string> {
     const customerIds = [...new Set(reportData.findingsForDisplay.map((e: any) => e.metadata?.customerId).filter(Boolean))] as string[];
@@ -26,5 +26,17 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         metadata: {
             unscannableItems: normErrors
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsSummary?.count ?? reportData?.findingsForDisplay?.length ?? (Array.isArray(reportData) ? reportData.length : 0);
+    const unscannableCount = unscannable?.length ?? 0;
+
+    return formatStandardSummary({
+        action: 'duplicate customer payments',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Review sets in QuickBooks to keep the valid payment and void duplicates.'
     });
 }

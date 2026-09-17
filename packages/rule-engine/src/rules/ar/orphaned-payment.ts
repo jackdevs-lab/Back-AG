@@ -1,12 +1,11 @@
-﻿//(production ready)
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/orphaned-payments';
+import { formatSummary } from '../../core/report/orphaned-payments';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -47,7 +46,7 @@ export class OrphanedPaymentRule implements IRule {
                     const raw: any = pay.qboData;
 
                     // Gate 1 (primary): QBO explicitly marks the unapplied portion.
-                    // UnappliedAmt > 0 is the authoritative signal � check it first before
+                    // UnappliedAmt > 0 is the authoritative signal  check it first before
                     // inspecting Line entries, because QBO attaches non-empty LinkedTxn
                     // entries to unapplied payments (pointing to AR clearing accounts),
                     // which would otherwise cause a false negative.
@@ -99,8 +98,8 @@ export class OrphanedPaymentRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

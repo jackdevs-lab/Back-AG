@@ -1,5 +1,4 @@
-// core/report/je-without-name.ts
-import { formatStandardReport } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary } from '../shared/report-utils';
 
 /**
  * Formats the diagnostic report for journal entries missing entity names.
@@ -17,5 +16,17 @@ export function formatReport(
             deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
         })),
         recommendation: 'Good accounting practice requires identifying the source entity for every transaction line, especially for Balance Sheet accounts. Review these entries in QuickBooks and assign the correct name to each line to maintain clear audit trails and accurate sub-ledger reporting.'
+    });
+}
+
+export function formatSummary(
+    reportData: { qbId: string; date: Date | null; missingLines: any[] }[],
+    unscannable?: any[]
+): string {
+    return formatStandardSummary({
+        action: 'journal entries missing entity names',
+        findingsCount: reportData.length,
+        unscannableCount: unscannable?.length ?? 0,
+        recommendation: 'Review these entries in QuickBooks and assign the correct name to each line to maintain clear audit trails.'
     });
 }

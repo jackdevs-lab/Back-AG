@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportItem, formatCurrency } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary, ReportItem, formatCurrency } from '../../core/shared/report-utils';
 import { RuleContext } from '../../types';
 
 const AGING_THRESHOLD_DAYS = 60;
@@ -49,5 +49,17 @@ export function formatReport(reportData: any, ctx: RuleContext, normErrors: any[
         metadata: {
             unscannableIssues: normErrors.length > 0 ? normErrors : undefined
         }
+    });
+}
+
+export function formatSummary(reportData: any, normErrors: any[]): string {
+    const findingsCount = reportData?.findingsSummary?.count || 0;
+    const unscannableCount = normErrors?.length || 0;
+
+    return formatStandardSummary({
+        action: 'aging unreconciled transactions',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Transactions older than 60 days unreconciled may indicate missing bank statements or data entry errors.'
     });
 }

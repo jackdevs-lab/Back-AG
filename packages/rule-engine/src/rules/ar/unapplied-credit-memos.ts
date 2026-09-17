@@ -1,11 +1,9 @@
-﻿//(production ready code)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { CreditMemoRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/unapplied-credit-memos';
+import { formatSummary } from '../../core/report/unapplied-credit-memos';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: any })[];
@@ -84,8 +82,8 @@ export class UnappliedCreditMemosRule implements IRule {
                     } as unknown as EnrichedFinding & { fingerprint: string; impactScore: number };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

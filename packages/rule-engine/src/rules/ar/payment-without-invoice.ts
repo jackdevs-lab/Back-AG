@@ -1,11 +1,9 @@
-﻿//(production ready)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { generateFingerprint } from '../../core/shared/utils';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
-import { formatReport } from '../../core/report/payment-without-invoice';
+import { formatSummary } from '../../core/report/payment-without-invoice';
 import { z } from 'zod';
 
 type NormalizedBatch = {
@@ -87,8 +85,8 @@ export class PaymentWithoutInvoiceRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, _ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

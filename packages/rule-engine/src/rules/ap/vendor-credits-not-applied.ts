@@ -1,11 +1,10 @@
-//(production ready)
 import { z } from 'zod';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch, fetchVendorsByQbIds } from '../../core/shared/data-primitives';
 import { VendorCreditRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { RuleContext, IRule, RuleExecutionResult, RuleId } from '../../types';
-import { formatReport } from '../../core/report/vendor-credits-not-applied';
+import { formatSummary } from '../../core/report/vendor-credits-not-applied';
 
 export class VendorCreditsNotAppliedRule implements IRule {
     id: RuleId = 'VENDOR_CREDIT_NOT_APPLIED' as unknown as RuleId;
@@ -77,7 +76,7 @@ export class VendorCreditsNotAppliedRule implements IRule {
                 return enriched;
             })
             .withReporting((aggregatedData, ctx: RuleContext, unscannable: any[]) => {
-                return formatReport(ctx.realmId, aggregatedData, unscannable);
+                return formatSummary(aggregatedData, unscannable);
             })
             .execute();
     }

@@ -1,9 +1,8 @@
-//(version production)
 import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
-import { formatReport } from '../../core/report/bill-date-in-future';
+import { formatSummary } from '../../core/report/bill-date-in-future';
 import { normalizeTransactionBatch, transactionGenerator } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
@@ -40,11 +39,7 @@ export class BillDateInFutureRule implements IRule {
             })
 
             .withReporting((reportData, ctx, normErrors) => {
-                return formatReport(ctx.realmId,
-                    Array.isArray(reportData) ? reportData : reportData.findingsForDisplay,
-                    normErrors,
-                    reportData
-                );
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

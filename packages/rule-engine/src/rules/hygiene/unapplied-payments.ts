@@ -1,11 +1,9 @@
-﻿//(production ready 5/5/2026)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner, DataResult } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/unapplied-payments';
+import { formatSummary } from '../../core/report/unapplied-payments';
 import { z } from 'zod';
 
 type NormalizedBatch = {
@@ -82,8 +80,8 @@ export class UnappliedPaymentsRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

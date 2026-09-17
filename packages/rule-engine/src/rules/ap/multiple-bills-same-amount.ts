@@ -1,11 +1,10 @@
-// (production ready - 100%)
 import { Prisma } from '@prisma/client';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, fetchRuleConfig, normalizeTransactionBatch, fetchVendorsByQbIds } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/multiple-bills-same-amount';
+import { formatSummary } from '../../core/report/multiple-bills-same-amount';
 import { z } from 'zod';
 
 interface RawBatchItem {
@@ -127,8 +126,8 @@ export class MultipleBillsSameAmountRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (aggregatedData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(aggregatedData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

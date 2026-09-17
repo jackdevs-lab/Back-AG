@@ -1,4 +1,16 @@
-import { formatStandardReport, PipelineSummary } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary, PipelineSummary } from '../../core/shared/report-utils';
+
+export function formatSummary(
+    reportData: { findingsSummary: PipelineSummary; findingsForDisplay: any[] },
+    unscannable: any[] = []
+): string {
+    return formatStandardSummary({
+        action: 'orphaned bill payments',
+        findingsCount: reportData.findingsSummary.count,
+        unscannableCount: unscannable.length,
+        recommendation: 'Re-apply these payments to the correct bills or delete them if redundant.'
+    });
+}
 
 export function formatReport(
     realmId: string,

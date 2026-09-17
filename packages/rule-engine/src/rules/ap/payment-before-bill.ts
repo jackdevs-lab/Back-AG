@@ -1,9 +1,8 @@
-﻿//( production ready)
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
-import { formatReport } from '../../core/report/payment-before-bill';
+import { formatSummary } from '../../core/report/payment-before-bill';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillRawSchema, BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
@@ -106,7 +105,7 @@ export class PaymentBeforeBillRule implements IRule {
                 });
             })
             .withReporting((aggregatedData: any, ctx: RuleContext, allUnscannable: any[]) => {
-                return formatReport(ctx.realmId, aggregatedData, allUnscannable);
+                return formatSummary(aggregatedData, allUnscannable);
             })
             .execute();
     }

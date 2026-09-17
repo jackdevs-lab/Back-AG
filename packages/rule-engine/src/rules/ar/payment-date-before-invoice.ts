@@ -1,11 +1,10 @@
-//(production ready 5/5/2026)
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch, fetchTransactionsByQbIds } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/payment-date-before-invoice';
+import { formatSummary } from '../../core/report/payment-date-before-invoice';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema>, invoiceDates: Map<string, Date> })[];
@@ -144,8 +143,8 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

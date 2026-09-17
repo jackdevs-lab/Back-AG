@@ -1,4 +1,3 @@
-
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 
@@ -7,7 +6,7 @@ import { fetchJournalEntries, fetchRuleConfig, fetchSyncLogs } from '../../core/
 import { normalizeJournalEntry } from '../../core/normalize/je-without-name';
 import { hasMissingName } from '../../core/detect/je-without-name';
 import { generateFingerprint, calculateImpactScore } from '../../core/enrich/je-without-name';
-import { formatReport } from '../../core/report/je-without-name';
+import { formatSummary } from '../../core/report/je-without-name';
 
 /**
  * Rule: Journal Entry Without Name
@@ -51,13 +50,13 @@ export class JEWithoutNameRule implements IRule {
                     raw: f
                 }));
             })
-            .withReporting((enriched: any, ctx: RuleContext) => {
+            .withReporting((enriched: any, ctx: RuleContext, unscannable?: any) => {
                 const findings = enriched.map((e: any) => ({
                     qbId: e.raw.qbId,
                     date: e.raw.date,
                     missingLines: e.raw.linesMissingName
                 }));
-                return formatReport(ctx.realmId, findings);
+                return formatSummary(findings, unscannable);
             })
             .execute();
     }

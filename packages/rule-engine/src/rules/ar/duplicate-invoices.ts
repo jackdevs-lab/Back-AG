@@ -1,11 +1,9 @@
-﻿//(production ready)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { InvoiceRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/duplicate-invoices';
+import { formatSummary } from '../../core/report/duplicate-invoices';
 import { z } from 'zod';
 
 type NormalizedBatch = {
@@ -92,7 +90,7 @@ export class DuplicateInvoicesRule implements IRule {
                 });
             })
             .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

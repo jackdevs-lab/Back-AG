@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportItem, formatCurrency } from '../shared/report-utils';
+import { formatStandardReport, ReportItem, formatCurrency, formatStandardSummary } from '../shared/report-utils';
 
 export function formatReport(
     realmId: string,
@@ -24,5 +24,17 @@ export function formatReport(
         summaryData: aggregatedData.findingsSummary,
         items: [...items, ...integrityItems],
         recommendation: 'Use the "Pay Bills" window in QuickBooks to apply these credits to outstanding bills for the same vendor. This ensures your AP Aging report accurately reflect your true liabilities.'
+    });
+}
+
+export function formatSummary(aggregatedData: any, unscannable: any[] = []): string {
+    const findingsCount = aggregatedData?.findingsForDisplay?.length ?? aggregatedData?.findings?.length ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+
+    return formatStandardSummary({
+        action: 'unapplied vendor credits',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Use the "Pay Bills" window to apply credits to outstanding bills for accurate AP Aging.'
     });
 }

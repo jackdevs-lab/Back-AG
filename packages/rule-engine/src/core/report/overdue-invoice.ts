@@ -1,6 +1,6 @@
 import { RuleContext } from '../../types';
 import { fetchCustomersByQbIds } from '../../core/shared/data-primitives';
-import { formatStandardReport, ReportItem, PipelineSummary } from '../../core/shared/report-utils';
+import { formatStandardReport, ReportItem, PipelineSummary, formatStandardSummary } from '../../core/shared/report-utils';
 
 export async function formatReport(
     reportData: { findingsForDisplay: any[], findingsSummary: PipelineSummary },
@@ -42,5 +42,17 @@ export async function formatReport(
         recommendation: recommendationText,
         summaryData: reportData.findingsSummary,
         metadata: { unscannable: normErrors }
+    });
+}
+
+export function formatSummary(
+    reportData: { findingsForDisplay: any[], findingsSummary: PipelineSummary },
+    normErrors: any[]
+): string {
+    return formatStandardSummary({
+        action: "overdue customer invoices",
+        findingsCount: reportData.findingsSummary?.count || 0,
+        unscannableCount: normErrors?.length || 0,
+        recommendation: "Overdue invoices tie up your cash flow. Consider sending reminders or statements to these customers to encourage payment."
     });
 }

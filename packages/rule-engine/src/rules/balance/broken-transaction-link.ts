@@ -11,7 +11,7 @@ import {
 } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { z } from 'zod';
-import { formatReport } from '../../core/report/broken-transaction-link';
+import { formatSummary } from '../../core/report/broken-transaction-link';
 
 const CombinedTxnSchema = z.union([
     BillRawSchema,
@@ -81,7 +81,7 @@ export class BrokenTransactionLinkRule implements IRule {
                 }));
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
-                return formatReport(ctx.realmId, reportData, unscannable);
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

@@ -1,11 +1,9 @@
-﻿//(production ready)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/over-applied-payments';
+import { formatSummary } from '../../core/report/over-applied-payments';
 import { z } from 'zod';
 import { Prisma } from '@qb-health/financial-model';
 
@@ -106,8 +104,8 @@ export class OverAppliedPaymentRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

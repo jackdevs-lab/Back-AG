@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportParams } from '../shared/report-utils';
+import { formatStandardReport, ReportParams, formatStandardSummary } from '../shared/report-utils';
 
 export function formatReport(
     realmId: string,
@@ -33,4 +33,16 @@ export function formatReport(
     }
 
     return standardReport + integritySection;
+}
+
+export function formatSummary(reportData: any, unscannableItems: any[] = []): string {
+    const findingsCount = reportData?.findings?.length || reportData?.findingsForDisplay?.length || 0;
+    const unscannableCount = unscannableItems?.length || 0;
+
+    return formatStandardSummary({
+        action: 'duplicate vendor bills',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Review these duplicate bills and remove redundant entries to ensure accurate financial reporting.'
+    });
 }

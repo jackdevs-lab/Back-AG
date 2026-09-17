@@ -1,11 +1,9 @@
-﻿//(production ready) 
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/duplicate-payment';
+import { formatSummary } from '../../core/report/duplicate-payment';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: import('zod').infer<typeof PaymentRawSchema> })[];
@@ -95,8 +93,8 @@ export class DuplicatePaymentRule implements IRule {
                     } as EnrichedFinding;
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

@@ -1,5 +1,4 @@
-﻿//(production ready)
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -14,7 +13,7 @@ import {
 } from '../../core/shared/base-schemas';
 
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/deleted-account-reference';
+import { formatSummary } from '../../core/report/deleted-account-reference';
 
 function extractAccountRefs(txn: any): { accountId: string; detailType: string }[] {
     const refs: { accountId: string; detailType: string }[] = [];
@@ -131,7 +130,7 @@ export class DeletedAccountReferenceRule implements IRule {
                 });
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
-                return formatReport(ctx.realmId, reportData, unscannable);
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

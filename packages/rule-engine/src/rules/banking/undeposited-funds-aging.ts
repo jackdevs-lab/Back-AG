@@ -1,11 +1,9 @@
-//(production ready)
-
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/undeposited-funds-aging';
+import { formatSummary } from '../../core/report/undeposited-funds-aging';
 
 export class UndepositedFundsAgingRule implements IRule {
     id: RuleId = 'UNDEPOSITED_FUNDS_AGING' as unknown as RuleId;
@@ -82,7 +80,7 @@ export class UndepositedFundsAgingRule implements IRule {
 
                 return enriched;
             })
-            .withReporting(formatReport)
+            .withReporting((reportData, ctx, unscannable) => formatSummary(reportData, unscannable))
             .execute();
     }
 }

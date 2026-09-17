@@ -1,13 +1,11 @@
-
-//(production ready - with fixed generic type constraints)
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { IRule, RuleContext, RuleExecutionResult , RuleId } from '../../types';
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/duplicate-bill-payment';
+import { formatSummary } from '../../core/report/duplicate-bill-payment';
 
 export class DuplicateBillPaymentsRule implements IRule {
     public id: RuleId = 'DUPLICATE_BILL_PAYMENTS' as unknown as RuleId;
@@ -83,8 +81,8 @@ export class DuplicateBillPaymentsRule implements IRule {
                     return finding;
                 });
             })
-            .withReporting(async (reportData, ctx, unscannable) => {
-                return formatReport(ctx.realmId, reportData, unscannable);
+            .withReporting(async (reportData, _ctx, unscannable) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

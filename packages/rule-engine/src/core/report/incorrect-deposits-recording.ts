@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportItem } from '../../core/shared/report-utils';
+import { formatStandardReport, ReportItem, formatStandardSummary } from '../shared/report-utils';
 import { RuleContext } from '../../types';
 
 export function formatReport(reportData: any, ctx: RuleContext, normErrors: any[]): string {
@@ -17,5 +17,15 @@ export function formatReport(reportData: any, ctx: RuleContext, normErrors: any[
         metadata: {
             unscannableItems: normErrors
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsForDisplay?.length ?? reportData?.findings?.length ?? 0;
+    return formatStandardSummary({
+        action: 'incorrectly recorded deposits',
+        findingsCount,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Record customer payments via "Receive Payment" or "Sales Receipt" before using "Bank Deposit" to maintain invoice links.'
     });
 }

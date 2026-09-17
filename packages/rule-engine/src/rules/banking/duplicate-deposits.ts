@@ -1,6 +1,4 @@
-﻿//(production ready)
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { DepositRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
@@ -9,7 +7,7 @@ import { z } from 'zod';
 
 import { Prisma } from '@qb-health/financial-model';
 
-import { formatReport } from '../../core/report/duplicate-deposits';
+import { formatSummary } from '../../core/report/duplicate-deposits';
 
 type DepositRaw = z.infer<typeof DepositRawSchema>;
 
@@ -99,8 +97,8 @@ export class DuplicateDepositsRule implements IRule {
                     } as EnrichedFinding;
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, normErrors: any[]) => {
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

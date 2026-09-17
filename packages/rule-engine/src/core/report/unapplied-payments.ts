@@ -1,4 +1,4 @@
-import { formatStandardReport, ReportItem } from '../shared/report-utils';
+import { formatStandardReport, ReportItem, formatStandardSummary } from '../shared/report-utils';
 import { fetchCustomersByQbIds } from '../shared/data-primitives';
 import { RuleContext } from '../../types';
 
@@ -26,5 +26,17 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         metadata: {
             unscannableItems: normErrors
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsForDisplay?.length ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+
+    return formatStandardSummary({
+        action: 'unapplied customer payments',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Apply each payment to the correct outstanding invoice in QuickBooks.'
     });
 }

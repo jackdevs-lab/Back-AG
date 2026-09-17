@@ -1,6 +1,19 @@
 import { RuleContext } from '../../types';
 import { fetchCustomersByQbIds } from '../../core/shared/data-primitives';
-import { formatStandardReport, ReportItem } from '../../core/shared/report-utils';
+import { formatStandardReport, ReportItem, formatStandardSummary } from '../../core/shared/report-utils';
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData.findingsSummary?.count ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+    const recommendation = "Payments not linked to an invoice inflate the customer's credit balance. Review and apply them to the correct open invoices.";
+
+    return formatStandardSummary({
+        action: 'payment without invoice',
+        findingsCount,
+        unscannableCount,
+        recommendation
+    });
+}
 
 export async function formatReport(reportData: any, ctx: RuleContext, normErrors: any[]): Promise<string> {
     const customerIds = [...new Set(

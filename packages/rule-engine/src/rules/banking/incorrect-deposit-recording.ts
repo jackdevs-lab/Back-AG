@@ -1,11 +1,9 @@
-﻿//(production ready )
-
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { DepositRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/incorrect-deposits-recording';
+import { formatSummary } from '../../core/report/incorrect-deposits-recording';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: any })[];
@@ -70,8 +68,8 @@ export class IncorrectDepositRecordingRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+            .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

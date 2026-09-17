@@ -7,7 +7,7 @@ import { fetchJournalEntries, fetchRuleConfig, fetchSyncLogs } from '../../core/
 import { normalizeJournalEntry } from '../../core/normalize/unbalanced-ledger';
 import { isUnbalanced } from '../../core/detect/unbalanced-ledger';
 import { generateFingerprint, calculateImpactScore } from '../../core/enrich/unbalanced-ledger';
-import { formatReport } from '../../core/report/unbalanced-ledger';
+import { formatSummary } from '../../core/report/unbalanced-ledger';
 
 /**
  * Rule: Unbalanced Journal Entries
@@ -54,8 +54,8 @@ export class UnbalancedLedgerRule implements IRule {
                 }));
             })
             .withReporting((enriched: any, ctx: RuleContext) => {
-                const findings = enriched.map((e: any) => e.raw);
-                return formatReport(ctx.realmId, findings);
+                const reportData = enriched.map((e: any) => e.raw);
+                return formatSummary(reportData, []);
             })
             .execute();
     }

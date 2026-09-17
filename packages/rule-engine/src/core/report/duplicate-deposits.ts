@@ -1,5 +1,5 @@
 import { RuleContext } from '../../types';
-import { formatStandardReport, PipelineSummary, ReportItem } from '../shared/report-utils';
+import { formatStandardReport, PipelineSummary, ReportItem, formatStandardSummary } from '../shared/report-utils';
 
 interface ReportData {
     findingsForDisplay: any[];
@@ -28,5 +28,20 @@ export async function formatReport(
         items: displayItems,
         summaryData: reportData.findingsSummary,
         recommendation: `These transaction groups share identical markers. This may indicate redundant data entry or an automated bank feed issue. Verify in QuickBooks and delete any true duplicates to avoid overstating assets.${blindSpotWarning}`
+    });
+}
+
+export function formatSummary(
+    reportData: ReportData,
+    unscannable: any[]
+): string {
+    const findingsCount = reportData?.findingsSummary?.count || 0;
+    const unscannableCount = unscannable?.length || 0;
+
+    return formatStandardSummary({
+        action: 'duplicate deposits',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Verify in QuickBooks and delete true duplicates to avoid overstating assets.'
     });
 }

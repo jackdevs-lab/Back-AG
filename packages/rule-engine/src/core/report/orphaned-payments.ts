@@ -34,3 +34,23 @@ export async function formatReport(reportData: any, ctx: RuleContext, normErrors
         }
     });
 }
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsForDisplay?.length ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+    const action = 'orphaned customer payments';
+    const recommendation = 'Review these payments and apply them to the correct open invoices.';
+
+    if (findingsCount === 0 && unscannableCount === 0) {
+        return `No ${action} detected.`;
+    }
+
+    const n = new Intl.NumberFormat('en-US').format(findingsCount);
+    const m = new Intl.NumberFormat('en-US').format(unscannableCount);
+
+    const base = unscannableCount > 0
+        ? `Found ${n} ${action} and ${m} unscannable records.`
+        : `Found ${n} ${action}.`;
+
+    return `${base} ${recommendation}`;
+}

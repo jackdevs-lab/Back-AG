@@ -1,5 +1,5 @@
 import { RuleContext } from '../../types';
-import { formatStandardReport, ReportItem, PipelineSummary } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary, ReportItem, PipelineSummary } from '../shared/report-utils';
 
 export function formatReport(
     reportData: { findingsSummary: PipelineSummary; findingsForDisplay: any[] },
@@ -25,5 +25,17 @@ export function formatReport(
         items,
         summaryData: reportData.findingsSummary,
         recommendation: 'Review the listed payments and sales receipts and ensure they are linked to their corresponding bank deposits to properly clear the Undeposited Funds account.'
+    });
+}
+
+export function formatSummary(
+    reportData: { findingsSummary: PipelineSummary; findingsForDisplay: any[] },
+    unscannable: any[]
+): string {
+    return formatStandardSummary({
+        action: 'undeposited funds aging',
+        findingsCount: reportData.findingsSummary.count,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Review payments and sales receipts to ensure they are linked to bank deposits to properly clear the Undeposited Funds account.'
     });
 }

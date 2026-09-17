@@ -1,5 +1,5 @@
 import { RuleContext } from '../../types';
-import { formatStandardReport } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary } from '../../core/shared/report-utils';
 import { fetchCustomersByQbIds } from '../../core/shared/data-primitives';
 
 export async function formatReport(
@@ -44,5 +44,18 @@ export async function formatReport(
         metadata: {
             unscannableItems: normErrors
         }
+    });
+}
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = Array.isArray(reportData)
+        ? reportData.length
+        : (reportData?.findingsForDisplay?.length ?? reportData?.findingsSummary?.count ?? 0);
+
+    return formatStandardSummary({
+        action: 'duplicate customer invoices',
+        findingsCount,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Review these sets in QuickBooks to void or delete duplicates, or use a Credit Memo to offset the error.'
     });
 }

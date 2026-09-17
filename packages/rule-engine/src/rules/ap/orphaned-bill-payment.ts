@@ -1,10 +1,9 @@
-//(production ready )
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { generateFingerprint } from '../../core/shared/utils';
 import { fetchRuleConfig, transactionGenerator, normalizeTransactionBatch, fetchTransactionsByQbIds } from '../../core/shared/data-primitives';
 import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
-import { formatReport } from '../../core/report/orphaned-bill-payment';
+import { formatSummary } from '../../core/report/orphaned-bill-payment';
 import { z } from 'zod';
 
 type RawTx = {
@@ -135,8 +134,8 @@ export class OrphanedBillPaymentRule implements IRule {
                     };
                 });
             })
-            .withReporting(async (reportData, context, normErrors) => {
-                return formatReport(context.realmId, reportData, normErrors);
+            .withReporting((reportData, context, unscannable) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

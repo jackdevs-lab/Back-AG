@@ -1,12 +1,12 @@
-﻿//(production ready 05/01/2026)
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/duplicate-vendor-bills';
+import { formatSummary } from '../../core/report/duplicate-vendor-bills';
+
 type RawBatchItem = {
     id: string;
     qbId: string;
@@ -118,8 +118,8 @@ export class DuplicateVendorBillsRule implements IRule {
                     };
                 });
             })
-            .withReporting((aggregatedReportData: any, ctx: RuleContext, allUnscannable: any[]) => {
-                return formatReport(ctx.realmId, aggregatedReportData, allUnscannable);
+            .withReporting((reportData: any, _ctx: RuleContext, unscannable: any[]) => {
+                return formatSummary(reportData, unscannable);
             })
             .execute();
     }

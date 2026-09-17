@@ -1,10 +1,22 @@
-import { formatStandardReport, PipelineSummary } from '../../core/shared/report-utils';
+import { formatStandardReport, PipelineSummary, formatStandardSummary } from '../../core/shared/report-utils';
 import { EnrichedFinding } from '../../core/shared/base-schemas';
 
 export interface ReportAggregatedData {
     findingsForDisplay: EnrichedFinding[];
     findingsSummary: PipelineSummary;
     processedCount: number;
+}
+
+export function formatSummary(
+    reportData: ReportAggregatedData,
+    unscannable: any[] = []
+): string {
+    return formatStandardSummary({
+        action: 'payment date before bill date',
+        findingsCount: reportData.findingsSummary.count,
+        unscannableCount: unscannable.length,
+        recommendation: 'Ensure your records reflect the correct chronological order. Payments dated before bills can distort AP aging.'
+    });
 }
 
 export function formatReport(

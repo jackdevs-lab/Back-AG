@@ -39,3 +39,22 @@ export function formatReport(realmId: string, reportData: any, unscannable: any[
         recommendation: 'These "ghost" references often occur when a transaction was manually deleted in QuickBooks instead of being un-applied. Review the source transactions and consider un-applying and re-applying the link to clear the inconsistency.'
     });
 }
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsForDisplay?.length ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+
+    if (findingsCount === 0 && unscannableCount === 0) {
+        return 'No linked transaction inconsistencies detected.';
+    }
+
+    const parts: string[] = [];
+    if (findingsCount > 0) {
+        parts.push(`${findingsCount.toLocaleString()} source ${findingsCount === 1 ? 'transaction' : 'transactions'}`);
+    }
+    if (unscannableCount > 0) {
+        parts.push(`${unscannableCount.toLocaleString()} unscannable ${unscannableCount === 1 ? 'record' : 'records'}`);
+    }
+
+    return `Found ${parts.join(' and ')} referencing missing transactions in QuickBooks. ` +
+        `Review affected records to un-apply and re-apply the links.`;
+}

@@ -5,7 +5,7 @@ import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { safeDecimal, safeDate, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
-import { formatReport } from '../../core/report/unreconciled-transaction-aging';
+import { formatSummary } from '../../core/report/unreconciled-transaction-aging';
 import Decimal from 'decimal.js';
 
 const TxnRawSchema = z.object({
@@ -122,7 +122,7 @@ export class UnreconciledTransactionAgingRule implements IRule {
                 });
             })
             .withReporting(async (reportData: any, ctx: RuleContext, normErrors: any[]) => {
-                return formatReport(reportData, ctx, normErrors);
+                return formatSummary(reportData, normErrors);
             })
             .execute();
     }

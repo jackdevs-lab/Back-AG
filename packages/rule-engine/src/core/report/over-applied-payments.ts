@@ -1,6 +1,18 @@
 import { RuleContext } from '../../types';
 import { fetchCustomersByQbIds } from '../../core/shared/data-primitives';
-import { formatStandardReport } from '../../core/shared/report-utils';
+import { formatStandardReport, formatStandardSummary } from '../../core/shared/report-utils';
+
+export function formatSummary(reportData: any, unscannable: any[]): string {
+    const findingsCount = reportData?.findingsSummary?.count || reportData?.findingsForDisplay?.length || 0;
+    const unscannableCount = unscannable?.length || 0;
+
+    return formatStandardSummary({
+        action: 'over-applied customer payments',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Review and correct the applied amounts to prevent data corruption or manual override errors.'
+    });
+}
 
 export async function formatReport(
     reportData: any,

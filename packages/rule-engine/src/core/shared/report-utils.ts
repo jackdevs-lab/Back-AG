@@ -66,3 +66,35 @@ export function getAmountKey(amount: any): string {
     const val = typeof amount?.toNumber === 'function' ? amount.toNumber() : Number(amount || 0);
     return val.toFixed(2);
 }
+/**
+ * Bounded, one-line summary suitable for `Issue.message`.
+ * Never returns more than ~500 bytes regardless of `findingsCount`.
+ *
+ * Use this instead of formatStandardReport when building the `message`
+ * field. Full reports belong in on-demand rendering, not in the DB.
+ */
+export function formatStandardSummary(input: {
+    action: string;             // e.g. "broken transaction links"
+    findingsCount: number;
+    unscannableCount?: number;
+    recommendation?: string;    // optional one-line advice
+}): string {
+    const { action, findingsCount, unscannableCount = 0, recommendation } = input;
+
+    if (findingsCount === 0 && unscannableCount === 0) {
+        return `No ${action} detected.`;
+    }
+
+    const parts: string[] = [];
+    if (findingsCount > 0) {
+        parts.push(`${findingsCount.toLocaleString()} ${action}`);
+    }
+    if (unscannableCount > 0) {
+        parts.push(
+            `${unscannableCount.toLocaleString()} unscannable ${unscannableCount === 1 ? 'record' : 'records'}`
+        );
+    }
+
+    const summary = `Found ${parts.join(' and ')}.`;
+    return recommendation ? `${summary} ${recommendation}` : summary;
+}

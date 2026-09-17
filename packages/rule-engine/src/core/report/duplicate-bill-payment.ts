@@ -32,3 +32,21 @@ export function formatReport(realmId: string, reportData: any, unscannable: any[
 
     return standardReport + integrityFindingsSection;
 }
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    const count = reportData?.findingsForDisplay?.length || 0;
+    const unscannableCount = unscannable.length;
+    const action = 'duplicate bill payments';
+    const recommendation = ' Review the identified bill payments to ensure they are not accidental double-payments.';
+
+    let summary = '';
+    if (count === 0 && unscannableCount === 0) {
+        summary = `No ${action} detected.`;
+    } else if (unscannableCount === 0) {
+        summary = `Found ${count.toLocaleString()} ${action}.`;
+    } else {
+        summary = `Found ${count.toLocaleString()} ${action} and ${unscannableCount.toLocaleString()} unscannable records.`;
+    }
+
+    return summary + recommendation;
+}

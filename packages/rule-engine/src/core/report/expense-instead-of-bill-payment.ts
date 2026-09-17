@@ -1,5 +1,16 @@
-//(production ready version)
-import { formatStandardReport, ReportParams } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary, ReportParams } from '../shared/report-utils';
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    const findingsCount = reportData?.findingsSummary?.count ?? reportData?.findingsForDisplay?.length ?? reportData?.length ?? 0;
+    const unscannableCount = unscannable?.length ?? 0;
+
+    return formatStandardSummary({
+        action: 'expense recorded instead of bill payment',
+        findingsCount,
+        unscannableCount,
+        recommendation: 'Investigate identified transactions and consider voiding the incorrect expense to create a proper bill payment.'
+    });
+}
 
 export function formatReport(reportData: any, unscannable: any[] = []): string {
     const summaryData = reportData?.findingsSummary;

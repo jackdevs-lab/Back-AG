@@ -1,4 +1,4 @@
-import { formatStandardReport, formatCurrency } from '../../core/shared/report-utils';
+import { formatStandardReport, formatCurrency, formatStandardSummary } from '../../core/shared/report-utils';
 import { RuleContext } from '../../types';
 
 export function formatReport(
@@ -37,4 +37,12 @@ export function formatReport(
     });
 
     return report + blindSpotsSection;
+}
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    return formatStandardSummary({
+        action: 'duplicate bills',
+        findingsCount: reportData?.findingsForDisplay?.length ?? 0,
+        unscannableCount: unscannable?.length ?? 0
+    });
 }

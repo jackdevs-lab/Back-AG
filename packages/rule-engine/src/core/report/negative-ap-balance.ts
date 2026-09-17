@@ -30,3 +30,34 @@ export function formatReport(
 
     return report + blindSpotsSection;
 }
+
+export function formatSummary(
+    reportData: { findingsForDisplay: any[] },
+    unscannable: any[] = []
+): string {
+    const count = reportData.findingsForDisplay.length;
+    const unscannableCount = unscannable.length;
+    const action = "negative accounts payable balance";
+
+    if (count === 0 && unscannableCount === 0) {
+        return `No ${action} detected.`;
+    }
+
+    const formattedCount = count.toLocaleString();
+    let summary = `Found ${formattedCount} ${action}`;
+
+    if (unscannableCount > 0) {
+        summary += ` and ${unscannableCount.toLocaleString()} unscannable records.`;
+    } else {
+        summary += '.';
+    }
+
+    if (count > 0) {
+        const rec = " Investigate negative balances immediately for overpayments or missing invoices.";
+        if (summary.length + rec.length <= 490) {
+            summary += rec;
+        }
+    }
+
+    return summary;
+}

@@ -1,4 +1,13 @@
-import { formatStandardReport, ReportParams, ReportItem, formatCurrency } from '../shared/report-utils';
+import { formatStandardReport, ReportParams, ReportItem, formatCurrency, formatStandardSummary } from '../shared/report-utils';
+
+export function formatSummary(reportData: any, unscannable: any[] = []): string {
+    return formatStandardSummary({
+        action: 'ap control account mismatches',
+        findingsCount: reportData?.findingsForDisplay?.length || 0,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Review AP Aging vs Balance Sheet. Mismatches often mean JEs posted directly to AP without a vendor.'
+    });
+}
 
 export function formatReport(reportData: any, unscannable: any[] = []): string {
     const items: ReportItem[] = reportData.findingsForDisplay.map((f: any) => {

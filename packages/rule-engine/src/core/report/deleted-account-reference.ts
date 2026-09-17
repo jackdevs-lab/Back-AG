@@ -1,4 +1,4 @@
-import { formatStandardReport, PipelineSummary, ReportItem } from '../shared/report-utils';
+import { formatStandardReport, formatStandardSummary, PipelineSummary, ReportItem } from '../shared/report-utils';
 import { EnrichedFinding } from '../shared/base-schemas';
 
 // Helper function to map API transaction types to QBO UI paths
@@ -45,5 +45,17 @@ export function formatReport(
         items: items,
         summaryData: reportData.findingsSummary,
         recommendation: 'These errors typically occur if an account was deleted or merged in QuickBooks without re-associating existing transactions. Review the transactions listed above and update them to point to a valid account in your Chart of Accounts to ensure financial report accuracy.'
+    });
+}
+
+export function formatSummary(
+    reportData: { findingsSummary: PipelineSummary; findingsForDisplay: EnrichedFinding[] },
+    unscannable: any[]
+): string {
+    return formatStandardSummary({
+        action: 'transactions with deleted account references',
+        findingsCount: reportData?.findingsSummary?.count || 0,
+        unscannableCount: unscannable?.length || 0,
+        recommendation: 'Review and update transactions to point to a valid account in your Chart of Accounts.'
     });
 }
