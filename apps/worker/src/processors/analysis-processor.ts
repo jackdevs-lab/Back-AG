@@ -4,7 +4,7 @@ import { HealthScoreCalculator } from '@qb-health/diagnostics';
 import { prisma } from '@qb-health/financial-model';
 import { logger, byteSize, chunkByBytes } from '@qb-health/utils';
 import { sendAlert, AlertData } from '@qb-health/notifications';
-import crypto from 'crypto';
+import crypto, { randomUUID } from 'crypto';
 
 export interface AnalysisJobData {
     realmId: string;
@@ -13,8 +13,25 @@ export interface AnalysisJobData {
     correlationId?: string;
 }
 
-const MAX_ROW_BYTES = Number(process.env.MAX_ROW_BYTES ?? 100 * 1024);          // 100 KB
+const MAX_ROW_BYTES = Number(process.env.MAX_ROW_BYTES ?? 100 * 1024);           // 100 KB
 const BATCH_BYTES = Number(process.env.BULK_INSERT_BATCH_BYTES ?? 5 * 1024 * 1024); // 5 MB
+const TX_TIMEOUT_MS = Number(process.env.BULK_INSERT_TX_TIMEOUT_MS ?? 60_000);
+
+type IssueRow = {
+    id: string;
+    runId: string;
+    connectionId: string;
+    correlationId: string;
+    ruleId: string;
+    ruleName: string;
+    severity: string;
+    message: string;
+};
+
+type IssueEntityRow = {
+    issueId: string;
+    entityId: string;
+};
 
 export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     success: boolean;
@@ -25,7 +42,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     const { realmId, tenantId, connectionId } = job.data;
     const correlationId = job.data.correlationId || crypto.randomUUID();
 
-    // Bind correlationId into the base logger
     const jobLogger = logger.child({ jobId: job.id, realmId, connectionId, correlationId });
 
     jobLogger.info('Starting analysis job');
@@ -33,6 +49,17 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     if (!connectionId) {
         throw new Error(`Analysis job failed: connectionId is required for job ${job.id}`);
     }
+
+    // Phase 4: create the run as RUNNING first, so a failure can update it in place.
+    const diagnosticRun = await prisma.diagnosticRun.create({
+        data: {
+            tenantId,
+            connectionId,
+            correlationId,
+            healthScore: 0,
+            status: 'RUNNING',
+        },
+    });
 
     try {
         await job.updateProgress(10);
@@ -51,13 +78,102 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         await job.updateProgress(80);
 
-        const criticalCount = issues.filter((i: any) => i.severity === 'CRITICAL').length;
-        const warningCount = issues.filter((i: any) => i.severity === 'WARNING').length;
-        const infoCount = issues.filter((i: any) => i.severity === 'INFO').length;
-        const entitiesAffected = issues.reduce((sum: number, i: any) => sum + (i.entities?.length ?? 0), 0);
+        // ─── Phase 1: split issues into Issue + IssueEntity rows ───────────────
+        const issueRows: IssueRow[] = [];
+        const entityRows: IssueEntityRow[] = [];
+
+        for (const issue of issues as any[]) {
+            const issueId = randomUUID();
+
+            issueRows.push({
+                id: issueId,
+                runId: diagnosticRun.id,
+                connectionId,
+                correlationId,
+                ruleId: issue.ruleId,
+                ruleName: issue.ruleName,
+                severity: issue.severity,
+                message: typeof issue.message === 'string' ? issue.message : String(issue.message ?? ''),
+            });
+
+            const list = Array.isArray(issue.entities) ? issue.entities : [];
+            for (const e of list) {
+                // Tolerate both legacy (qbId) and new (entityId) shapes during migration.
+                const entityId = String(e?.entityId ?? e?.qbId ?? e?.id ?? '').trim();
+                if (entityId) {
+                    entityRows.push({ issueId, entityId });
+                }
+            }
+        }
+
+        // Per-row guard on the (now small) issue rows.
+        for (const row of issueRows) {
+            const size = byteSize(row);
+            if (size > MAX_ROW_BYTES) {
+                throw new Error(
+                    `Issue row exceeds ${MAX_ROW_BYTES} bytes ` +
+                    `(ruleId=${row.ruleId}, size=${size}). Normalize or truncate before insert.`
+                );
+            }
+        }
+
+        const issueChunks = chunkByBytes(issueRows, BATCH_BYTES);
+        const entityChunks = chunkByBytes(entityRows, BATCH_BYTES);
+
+        jobLogger.info('Prepared bulk insert', {
+            issueRows: issueRows.length,
+            entityRows: entityRows.length,
+            issueChunks: issueChunks.length,
+            entityChunks: entityChunks.length,
+        });
+
+        // Insert issues first, then entities — all in one transaction so a
+        // partial failure doesn't leave orphaned issues or entities.
+        await prisma.$transaction(async (tx) => {
+            for (const chunk of issueChunks) {
+                await tx.issue.createMany({ data: chunk, skipDuplicates: true });
+            }
+            for (const chunk of entityChunks) {
+                await tx.issueEntity.createMany({ data: chunk, skipDuplicates: true });
+            }
+        }, { timeout: TX_TIMEOUT_MS });
+
+        // ─── Checks (small, unchanged pattern) ────────────────────────────────
+        const checkRows = (checks as any[]).map((check) => ({
+            runId: diagnosticRun.id,
+            ruleId: check.ruleId,
+            ruleName: check.ruleName,
+            category: check.category,
+            severity: check.severity,
+            status: check.status,
+            message: check.message,
+            durationMs: check.durationMs,
+        }));
+
+        for (const row of checkRows) {
+            const size = byteSize(row);
+            if (size > MAX_ROW_BYTES) {
+                throw new Error(
+                    `Check row exceeds ${MAX_ROW_BYTES} bytes ` +
+                    `(ruleId=${row.ruleId}, size=${size}).`
+                );
+            }
+        }
+
+        const checkChunks = chunkByBytes(checkRows, BATCH_BYTES);
+        for (const chunk of checkChunks) {
+            await prisma.diagnosticCheck.createMany({ data: chunk, skipDuplicates: true });
+        }
+
+        await job.updateProgress(90);
+
+        // ─── Metadata ─────────────────────────────────────────────────────────
+        const criticalCount = issueRows.filter(i => i.severity === 'CRITICAL').length;
+        const warningCount = issueRows.filter(i => i.severity === 'WARNING').length;
+        const infoCount = issueRows.filter(i => i.severity === 'INFO').length;
+        const entitiesAffected = entityRows.length;   // Phase 1: count from the split rows
 
         const seenRuleAmounts = new Map<string, Map<string, number>>();
-
         for (const issue of issues as any[]) {
             const ruleId: string = issue.ruleId;
             const currency: string = issue.metadata?.currency || 'USD';
@@ -91,93 +207,29 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         const totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // Create the parent DiagnosticRun FIRST (without nested creates)
-        const diagnosticRun = await prisma.diagnosticRun.create({
+        // Phase 4: update the SAME run to COMPLETED with full metadata.
+        await prisma.diagnosticRun.update({
+            where: { id: diagnosticRun.id },
             data: {
-                tenantId,
-                connectionId,
-                correlationId,
-                healthScore: scoreBreakdown.finalScore,
                 status: 'COMPLETED',
+                healthScore: scoreBreakdown.finalScore,
                 metadata: {
                     criticalCount,
                     warningCount,
                     infoCount,
                     entitiesAffected,
                     totalExposure: totalExposureStr,
-                    currencyBreakdown
-                }
-            }
+                    currencyBreakdown,
+                },
+            },
         });
 
-        // Map once, with the per-row guard.
-        const issueRows = (issues as any[]).map((issue) => {
-            const row = {
-                runId: diagnosticRun.id,
-                connectionId,
-                correlationId,
-                ruleId: issue.ruleId,
-                ruleName: issue.ruleName,
-                severity: issue.severity,
-                message: issue.message,
-                entities: issue.entities || [],
-            };
-            const size = byteSize(row);
-            if (size > MAX_ROW_BYTES) {
-                throw new Error(
-                    `Issue row exceeds ${MAX_ROW_BYTES} bytes ` +
-                    `(ruleId=${row.ruleId}, size=${size}). Normalize or truncate before insert.`
-                );
-            }
-            return row;
-        });
-
-        // Chunk by serialized bytes, not by count.
-        const issueChunks = chunkByBytes(issueRows, BATCH_BYTES);
-        for (const chunk of issueChunks) {
-            await prisma.issue.createMany({
-                data: chunk,
-                skipDuplicates: true,
-            });
-        }
-
-        // Map checks first, with the per-row guard.
-        const checkRows = (checks as any[]).map((check) => {
-            const row = {
-                runId: diagnosticRun.id,
-                ruleId: check.ruleId,
-                ruleName: check.ruleName,
-                category: check.category,
-                severity: check.severity,
-                status: check.status,
-                message: check.message,
-                durationMs: check.durationMs,
-            };
-            const size = byteSize(row);
-            if (size > MAX_ROW_BYTES) {
-                throw new Error(
-                    `Check row exceeds ${MAX_ROW_BYTES} bytes ` +
-                    `(ruleId=${row.ruleId}, size=${size}).`
-                );
-            }
-            return row;
-        });
-
-        const checkChunks = chunkByBytes(checkRows, BATCH_BYTES);
-        for (const chunk of checkChunks) {
-            await prisma.diagnosticCheck.createMany({
-                data: chunk,
-                skipDuplicates: true,
-            });
-        }
-
-        await job.updateProgress(90);
-
+        // ─── Alerts ───────────────────────────────────────────────────────────
         if (scoreBreakdown.finalScore < 50) {
             const alertData: AlertData = {
                 score: scoreBreakdown.finalScore,
-                issueCount: issues.length,
-                criticalCount: issues.filter(i => i.severity === 'CRITICAL').length
+                issueCount: issueRows.length,
+                criticalCount,
             };
 
             try {
@@ -187,7 +239,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             }
 
             jobLogger.warn('Low health score, alert evaluated', {
-                score: scoreBreakdown.finalScore
+                score: scoreBreakdown.finalScore,
             });
         }
 
@@ -195,32 +247,31 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         jobLogger.info('Analysis completed', {
             score: scoreBreakdown.finalScore,
-            issueCount: issues.length
+            issueCount: issueRows.length,
+            entityCount: entityRows.length,
         });
 
         return {
             success: true,
             diagnosticRunId: diagnosticRun.id,
             healthScore: scoreBreakdown.finalScore,
-            issueCount: issues.length
+            issueCount: issueRows.length,
         };
     } catch (error) {
         jobLogger.error('Analysis job failed', error as Error);
         const errorMessage = (error as Error).message || 'Analysis job failed unexpectedly';
 
+        // Phase 4: update the same run to FAILED — never create a second one.
         try {
-            await prisma.diagnosticRun.create({
+            await prisma.diagnosticRun.update({
+                where: { id: diagnosticRun.id },
                 data: {
-                    tenantId,
-                    connectionId,
-                    correlationId,
-                    healthScore: 0,
                     status: 'FAILED',
-                    errorMessage: errorMessage
-                }
+                    errorMessage,
+                },
             });
         } catch (dbError) {
-            jobLogger.error('Failed to log failed diagnostic run to DB', dbError as Error);
+            jobLogger.error('Failed to mark diagnostic run as FAILED', dbError as Error);
         }
 
         throw error;
