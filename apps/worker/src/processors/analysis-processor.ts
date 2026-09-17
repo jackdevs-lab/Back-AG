@@ -4,11 +4,13 @@ import { HealthScoreCalculator } from '@qb-health/diagnostics';
 import { prisma } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
 import { sendAlert, AlertData } from '@qb-health/notifications';
+import crypto from 'crypto';
 
 export interface AnalysisJobData {
     realmId: string;
     tenantId: string;
     connectionId: string;
+    correlationId?: string;
 }
 
 export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
@@ -18,7 +20,10 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     issueCount: number;
 }> {
     const { realmId, tenantId, connectionId } = job.data;
-    const jobLogger = logger.child({ jobId: job.id, realmId, connectionId });
+    const correlationId = job.data.correlationId || crypto.randomUUID();
+
+    // Bind correlationId into the base logger
+    const jobLogger = logger.child({ jobId: job.id, realmId, connectionId, correlationId });
 
     jobLogger.info('Starting analysis job');
 
@@ -83,10 +88,12 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         const totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+        // Persist correlationId when writing DiagnosticRun and Issue rows
         const diagnosticRun = await prisma.diagnosticRun.create({
             data: {
                 tenantId,
                 connectionId,
+                correlationId,
                 healthScore: scoreBreakdown.finalScore,
                 status: 'COMPLETED',
                 metadata: {
@@ -100,6 +107,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                 issues: {
                     create: issues.map((issue: any) => ({
                         connectionId,
+                        correlationId, // Cascaded Traceability
                         ruleId: issue.ruleId,
                         ruleName: issue.ruleName,
                         severity: issue.severity,
@@ -148,9 +156,6 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             issueCount: issues.length
         });
 
-        // FIX: Removed the syncStatus manipulation block from here. 
-        // Sync state is now managed entirely by the sync processor.
-
         return {
             success: true,
             diagnosticRunId: diagnosticRun.id,
@@ -161,13 +166,12 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         jobLogger.error('Analysis job failed', error as Error);
         const errorMessage = (error as Error).message || 'Analysis job failed unexpectedly';
 
-        // FIX: Removed syncStatus update to ERROR from here to prevent state overlap.
-
         try {
             await prisma.diagnosticRun.create({
                 data: {
                     tenantId,
                     connectionId,
+                    correlationId, // Ensure trace ID is retained on failure
                     healthScore: 0,
                     status: 'FAILED',
                     errorMessage: errorMessage

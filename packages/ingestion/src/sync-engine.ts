@@ -44,6 +44,29 @@ export class SyncEngine {
         const startTime = Date.now();
         const syncSessionStartTime = new Date();
 
+        const allResults: SyncResult[] = [];
+
+        // --- DELETIONS FIRST ---
+        const entitiesForCdc = ['Account', 'Customer', 'Vendor', 'Invoice', 'Bill', 'Payment', 'Purchase', 'JournalEntry'];
+
+        const connection = await prisma.qbConnection.findUnique({
+            where: {
+                tenantId_realmId: {
+                    tenantId: String(this.tenantId),
+                    realmId: String(this.realmId)
+                }
+            },
+            select: { lastSyncAt: true },
+        });
+
+        const defaultCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const changedSince = connection?.lastSyncAt ? connection.lastSyncAt.toISOString() : defaultCutoff;
+
+        const initialDeletionResult = await this.syncDeletions(entitiesForCdc, changedSince);
+        allResults.push(initialDeletionResult);
+
+        // --- NOW BASE ENTITIES ---
+
         this.logger.info('Starting full sync', { realmId: this.realmId, tenantId: this.tenantId });
         await this.repo.updateQbConnectionStatus(
             String(this.tenantId),
@@ -52,8 +75,6 @@ export class SyncEngine {
         );
 
         try {
-            const allResults: SyncResult[] = [];
-
             const baseEntities: Array<{ type: SupportedEntityType; sync: () => Promise<SyncResult> }> = [
                 { type: 'Account', sync: () => this.syncAccounts(syncSessionStartTime) },
                 { type: 'Customer', sync: () => this.syncCustomers(syncSessionStartTime) },
@@ -82,10 +103,13 @@ export class SyncEngine {
             }
 
             // 2. Execute Transactional Entities (Single pass for both Transaction and BankActivity)
+            let partialFailure = false;
+
             for (const entity of transactionalEntities) {
                 try {
                     allResults.push(await entity.sync());
                 } catch (error) {
+                    partialFailure = true;
                     this.logger.error(`Failed transactional entity ${entity.type}`, error as Error, { realmId: this.realmId });
                     allResults.push(this.createFailedResult(entity.type, (error as Error).message));
                 }
@@ -99,20 +123,28 @@ export class SyncEngine {
                 'Account', 'Customer', 'Vendor', 'Invoice', 'Bill',
                 'Payment', 'Purchase', 'JournalEntry', 'Deposit', 'Transfer'
             ];
-            await this.syncDeletions(allEntityTypes, cdcTimestamp);
+
+            // FIX: Filter out unsupported entities prior to assembling the CDC query
+            const cdcSupportedEntityTypes = allEntityTypes.filter(
+                entity => entity !== 'Deposit' && entity !== 'Transfer'
+            );
+            const lookbackDeletionResult = await this.syncDeletions(cdcSupportedEntityTypes, cdcTimestamp);
+            allResults.push(lookbackDeletionResult);
 
             await this.repo.updateQbConnectionStatus(
                 String(this.tenantId),
                 this.realmId,
+                // Optional: You could use `partialFailure` here if your status enum supports 'PARTIAL_SUCCESS'
                 'IDLE' as BrandedSyncStatus,
                 new Date()
             );
 
-            this.logger.info('Full sync completed successfully', {
+            this.logger.info('Full sync completed', {
                 realmId: this.realmId,
                 tenantId: this.tenantId,
                 durationMs: Date.now() - startTime,
                 entitiesProcessed: allResults.length,
+                partialFailure
             });
 
             return allResults;
@@ -190,7 +222,8 @@ export class SyncEngine {
         return totalProcessed;
     }
 
-    private async syncDeletions(entities: string[], changedSince: string): Promise<void> {
+    private async syncDeletions(entities: string[], changedSince: string): Promise<SyncResult> {
+        const startTime = Date.now();
         try {
             const cdcData = await this.qbClient.cdc(entities, changedSince);
             const cdcResponses = cdcData?.CDCResponse || [];
@@ -200,39 +233,56 @@ export class SyncEngine {
 
             for (const response of cdcResponses) {
                 for (const queryResp of response.QueryResponse || []) {
-                    const deletedObjects = queryResp.deletedObject || [];
-                    if (deletedObjects.length === 0) continue;
+                    // Iterate over all keys in the query response (e.g., 'Customer', 'Invoice', 'Account')
+                    for (const [entityType, entityList] of Object.entries(queryResp)) {
+                        // Skip pagination/metadata fields that are not entity arrays
+                        if (['startPosition', 'maxResults', 'totalCount'].includes(entityType)) {
+                            continue;
+                        }
 
-                    for (const item of deletedObjects) {
-                        if (!item.name || !item.id) continue;
-                        const qbId = String(item.id);
-                        purgedQbIds.push(qbId);
+                        if (!Array.isArray(entityList)) continue;
 
-                        // Strict multi-tenant isolation on all delete operations
-                        switch (item.name) {
-                            case 'Account':
-                                await prisma.account.deleteMany({
-                                    where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
-                                });
-                                break;
-                            case 'Customer':
-                                await prisma.customer.deleteMany({
-                                    where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
-                                });
-                                break;
-                            case 'Vendor':
-                                await prisma.vendor.deleteMany({
-                                    where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
-                                });
-                                break;
-                            default:
-                                await prisma.transaction.deleteMany({
-                                    where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
-                                });
-                                await prisma.bankTransaction.deleteMany({
-                                    where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
-                                });
-                                break;
+                        for (const item of entityList) {
+                            if (!item) continue;
+
+                            // QuickBooks indicates deletions in two ways:
+                            // 1. Name list entities use `Active: false`
+                            // 2. Transactions use `status: 'Deleted'`
+                            const isDeleted = item.Active === false || item.status === 'Deleted';
+
+                            // QuickBooks uses capital 'Id', not 'id'
+                            if (!isDeleted || !item.Id) continue;
+
+                            const qbId = String(item.Id);
+                            purgedQbIds.push(qbId);
+
+                            // Strict multi-tenant isolation on all delete operations
+                            switch (entityType) {
+                                case 'Account':
+                                    await prisma.account.deleteMany({
+                                        where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
+                                    });
+                                    break;
+                                case 'Customer':
+                                    await prisma.customer.deleteMany({
+                                        where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
+                                    });
+                                    break;
+                                case 'Vendor':
+                                    await prisma.vendor.deleteMany({
+                                        where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
+                                    });
+                                    break;
+                                default:
+                                    // For transactions and other entities
+                                    await prisma.transaction.deleteMany({
+                                        where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
+                                    });
+                                    await prisma.bankTransaction.deleteMany({
+                                        where: { tenantId: tenantIdStr, realmId: realmIdStr, qbId },
+                                    });
+                                    break;
+                            }
                         }
                     }
                 }
@@ -241,8 +291,11 @@ export class SyncEngine {
             if (purgedQbIds.length > 0) {
                 await this.autoResolveDeletedIssues(purgedQbIds);
             }
+
+            return this.createSuccessResult('Deletions', purgedQbIds.length, Date.now() - startTime);
         } catch (error) {
             this.logger.error('CDC Deletion check failed', error as Error);
+            return this.createFailedResult('Deletions', (error as Error).message);
         }
     }
 
@@ -256,10 +309,13 @@ export class SyncEngine {
             select: { id: true, entities: true },
         });
 
+        // Optimize lookup using a Set for O(1) performance instead of O(N) array.includes
+        const deletedQbIdSet = new Set(deletedQbIds.map(id => String(id)));
+
         const issueIdsToResolve = openIssues
             .filter((issue) => {
-                const entityList = (issue.entities as Array<{ qbId: string }>) || [];
-                return entityList.some((e) => deletedQbIds.includes(String(e.qbId)));
+                const entityList = (issue.entities as Array<{ id: string }>) || [];
+                return entityList.some((e) => deletedQbIdSet.has(String(e.id)));
             })
             .map((issue) => issue.id);
 
@@ -331,30 +387,34 @@ export class SyncEngine {
     }
 
     // Combined single-pass fetcher for Bank-related transactional entities
+    // Combined single-pass fetcher for Bank-related transactional entities
     private async syncTransactionWithBankMapping(
         entityType: 'Purchase' | 'JournalEntry' | 'Deposit' | 'Transfer',
         syncStartTime: Date
     ): Promise<SyncResult> {
         const startTime = Date.now();
         const count = await this.fetchAndProcessPaged(entityType, '', async (batch) => {
-            // 1. Map & Upsert standard transaction records
+            // 1. Map standard transaction records
             const txMapped = batch.map((item) =>
                 this.mapper.mapTransaction(item, this.realmId, this.tenantId, entityType, syncStartTime)
             );
-            const savedTxCount = await this.batchService.batchUpsert(prisma, txMapped, 'Transaction', this.realmId);
 
-            // 2. Simultaneously map & upsert unified bank activity from same batch
+            // 2. Simultaneously map unified bank activity from same batch
             const bankMapped = batch
                 .map((item) =>
                     this.mapper.mapToUnifiedBankTransaction(item, entityType, this.realmId, this.tenantId, syncStartTime)
                 )
                 .filter((m) => m !== null);
 
-            if (bankMapped.length > 0) {
-                await this.batchService.batchUpsert(prisma, bankMapped, 'BankTransaction', this.realmId);
-            }
+            // 3. Execute both upserts together inside a transaction block
+            await prisma.$transaction(async (tx) => {
+                await this.batchService.batchUpsertTx(tx, txMapped, 'Transaction', this.realmId);
+                if (bankMapped.length > 0) {
+                    await this.batchService.batchUpsertTx(tx, bankMapped, 'BankTransaction', this.realmId);
+                }
+            });
 
-            return savedTxCount;
+            return txMapped.length;
         });
 
         return this.createSuccessResult(entityType, count, Date.now() - startTime);

@@ -11,13 +11,14 @@
         "@qb-health/diagnostics": "workspace:*",
         "@qb-health/financial-model": "workspace:*",
         "@qb-health/ingestion": "workspace:*",
-        "@qb-health/qb-client": "workspace:*",
         "@qb-health/notifications": "workspace:*",
+        "@qb-health/qb-client": "workspace:*",
         "@qb-health/rule-engine": "workspace:*",
         "@qb-health/utils": "workspace:*",
         "bullmq": "^4.15.0",
         "decimal.js": "^10.6.0",
-        "dotenv": "^17.3.1"
+        "dotenv": "^17.3.1",
+        "ioredis": "^6.0.0"
     },
     "devDependencies": {
         "@types/node": "^20.10.0",

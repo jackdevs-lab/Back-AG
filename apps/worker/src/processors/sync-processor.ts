@@ -2,8 +2,9 @@ import { Job } from 'bullmq';
 import { SyncEngine } from '@qb-health/ingestion';
 import { prisma, RealmId, TenantId } from '@qb-health/financial-model';
 import { logger } from '@qb-health/utils';
-import { analysisQueue } from '../queue';
+import { analysisQueue, redis } from '../queue';
 import { createQbClient } from '@qb-health/qb-client';
+import crypto from 'crypto';
 
 export interface SyncJobData {
     realmId?: string;
@@ -11,6 +12,7 @@ export interface SyncJobData {
     connectionId?: string;
     type: 'initial' | 'manual' | 'webhook' | 'scheduled';
     entityType?: string;
+    correlationId?: string;
 }
 
 export interface SyncProcessorResult {
@@ -23,11 +25,14 @@ export interface SyncProcessorResult {
         errorMessage?: string;
     }>;
     error?: string;
+    partialFailure?: boolean;
+    analysisSkipped?: boolean;
 }
 
 export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcessorResult> {
     let { realmId, tenantId, connectionId } = job.data;
     const { type } = job.data;
+    const correlationId = job.data.correlationId || crypto.randomUUID();
 
     if (!connectionId && tenantId && realmId) {
         const conn = await prisma.qbConnection.findUnique({
@@ -43,7 +48,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
 
     const connection = await prisma.qbConnection.findUnique({
         where: { id: connectionId },
-        select: { id: true, realmId: true, tenantId: true, syncStatus: true, updatedAt: true }
+        select: { id: true, realmId: true, tenantId: true, syncStatus: true, updatedAt: true, lastHeartbeatAt: true }
     });
 
     if (!connection) {
@@ -56,39 +61,73 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
     const typedRealmId = realmId as RealmId;
     const typedTenantId = tenantId as TenantId;
 
-    const jobLogger = logger.child({ jobId: job.id, realmId: typedRealmId, tenantId: typedTenantId, type, connectionId });
+    // Attach correlationId to logger
+    const jobLogger = logger.child({ jobId: job.id, realmId: typedRealmId, tenantId: typedTenantId, type, connectionId, correlationId });
+
+    // Validate cooldown FIRST
+    if (type !== 'initial') {
+        const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
+        if (minutesSinceLastUpdate < 1) {
+            jobLogger.warn('Aborting job: Cooldown active');
+            return { success: false, error: 'Cooldown active' };
+        }
+    }
+
+    // Acquire Redis execution lock
+    const lockKey = `sync-lock:${connectionId}`;
+    const lock = await redis.set(lockKey, '1', 'EX', 300, 'NX');
+    if (!lock) {
+        jobLogger.warn('Sync skipped: lock held by another worker');
+        return { success: false, error: 'Sync in progress' };
+    }
+
+    // Log ONLY after validation passes
     jobLogger.info('Starting sync job');
 
     let syncStarted = false;
+    let heartbeatInterval: NodeJS.Timeout | null = null;
 
     try {
         await job.updateProgress(10);
 
         if (type === 'initial' || type === 'manual') {
-            if (connection.syncStatus === 'SYNCING') {
+            const staleThreshold = new Date(Date.now() - 2 * 60_000);
+            const isActivelySyncing = connection.syncStatus === 'SYNCING' &&
+                connection.lastHeartbeatAt &&
+                connection.lastHeartbeatAt > staleThreshold;
+
+            if (isActivelySyncing) {
                 const errorMsg = 'Sync already in progress';
                 jobLogger.warn(`Aborting job: ${errorMsg}`);
                 return { success: false, error: errorMsg };
             }
-
-            if (type !== 'initial') {
-                const minutesSinceLastUpdate = (Date.now() - connection.updatedAt.getTime()) / 60000;
-                if (minutesSinceLastUpdate < 1) {
-                    const errorMsg = `Cooldown active. Last updated ${minutesSinceLastUpdate.toFixed(1)} mins ago.`;
-                    jobLogger.warn(`Aborting job: ${errorMsg}`);
-                    return { success: false, error: 'Cooldown active' };
-                }
-            }
         }
 
+        // Initialize SYNCING state and immediate heartbeat timestamp
         await prisma.qbConnection.update({
             where: { id: connectionId },
-            data: { syncStatus: 'SYNCING', lastSyncMessage: null }
+            data: {
+                syncStatus: 'SYNCING',
+                lastSyncMessage: null,
+                lastHeartbeatAt: new Date()
+            }
         });
         syncStarted = true;
 
+        // Start heartbeat emitter every 15 seconds
+        heartbeatInterval = setInterval(async () => {
+            try {
+                await prisma.qbConnection.update({
+                    where: { id: connectionId },
+                    data: { lastHeartbeatAt: new Date() }
+                });
+            } catch (hbError) {
+                jobLogger.error('Failed to update sync heartbeat', hbError as Error);
+            }
+        }, 15_000);
+
         const qbClient = await createQbClient(typedRealmId, typedTenantId);
-        const syncEngine = new SyncEngine(typedRealmId, typedTenantId, qbClient);
+        const syncEngine = new SyncEngine(typedRealmId, typedTenantId, qbClient, connection.id);
         const results = await syncEngine.runFullSync();
 
         await job.updateProgress(80);
@@ -102,60 +141,59 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
                     recordsSynced: result.recordsSynced,
                     durationMs: result.durationMs,
                     status: result.status,
-                    errorMessage: result.errorMessage
+                    errorMessage: result.errorMessage,
+                    correlationId // Persist correlationId for traceability
                 }
             });
         }
 
         await job.updateProgress(90);
 
-        const successfulSyncs = results.filter((r) => r.status === 'SUCCESS');
-        const criticalEntities = ['Invoice', 'Bill', 'Payment', 'VendorCredit'];
-        const criticalFailed = results.some((r) =>
+        const criticalEntities = [
+            'Invoice', 'Bill', 'Payment', 'VendorCredit',
+            'Purchase', 'JournalEntry', 'Deposit', 'Transfer',
+        ];
+
+        const partialFailure = results.some((r) =>
             criticalEntities.includes(r.entityType) && r.status !== 'SUCCESS'
         );
 
-        if (successfulSyncs.length > 0 && !criticalFailed) {
-            await prisma.qbConnection.update({
-                where: { id: connectionId },
-                data: {
-                    syncStatus: 'IDLE',
-                    lastSyncAt: new Date(),
-                    lastSyncMessage: null
-                }
-            });
-            syncStarted = false;
-
-            await analysisQueue.add('run-diagnostics', {
-                realmId: typedRealmId,
-                tenantId: typedTenantId,
-                connectionId
-            }, {
-                jobId: `analysis-${connectionId}-${Date.now()}`,
-                removeOnComplete: 10
-            });
-
-            if (successfulSyncs.length === results.length) {
-                jobLogger.info('Sync completed successfully, analysis queued');
-            } else {
-                jobLogger.warn('Sync completed with partial success, analysis queued', {
-                    total: results.length,
-                    successful: successfulSyncs.length
-                });
-            }
-        } else {
-            const errorMsg = criticalFailed
-                ? 'Sync failed for critical transactional entities, skipping analysis'
-                : 'Sync failed for all entities, skipping analysis';
-
-            jobLogger.error(errorMsg);
+        if (partialFailure) {
+            const errorMsg = 'Sync failed for critical transactional entities, skipping analysis';
+            jobLogger.warn('Skipping diagnostic analysis due to critical entity sync failure');
 
             await prisma.qbConnection.update({
                 where: { id: connectionId },
                 data: { syncStatus: 'ERROR', lastSyncMessage: errorMsg }
             });
             syncStarted = false;
+
+            await job.updateProgress(100);
+            return { success: true, results, partialFailure: true, analysisSkipped: true };
         }
+
+        await prisma.qbConnection.update({
+            where: { id: connectionId },
+            data: {
+                syncStatus: 'IDLE',
+                lastSyncAt: new Date(),
+                lastSyncMessage: null
+            }
+        });
+        syncStarted = false;
+
+        // Forward correlationId to analysis worker
+        await analysisQueue.add('run-diagnostics', {
+            realmId: typedRealmId,
+            tenantId: typedTenantId,
+            connectionId,
+            correlationId
+        }, {
+            jobId: `analysis-${connectionId}-${Date.now()}`,
+            removeOnComplete: 10
+        });
+
+        jobLogger.info('Sync completed successfully, analysis queued');
 
         await job.updateProgress(100);
         return { success: true, results };
@@ -176,6 +214,12 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
 
         throw error;
     } finally {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+        }
+
+        await redis.del(lockKey);
+
         if (syncStarted && connectionId) {
             try {
                 const currentConnection = await prisma.qbConnection.findUnique({

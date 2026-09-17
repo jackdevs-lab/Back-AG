@@ -91,7 +91,7 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
             if (this.isAsyncGenerator(dataResult)) {
                 const allUnscannable: any[] = [];
                 let aggregatedReportData: {
-                    findingsSummary: { count: number; currencies: Map<any,any>; totalAmounts: Map<any,any> };
+                    findingsSummary: { count: number; currencies: Map<any, any>; totalAmounts: Map<any, any> };
                     findingsForDisplay: any[];
                     processedCount: number;
                 } = {
@@ -111,9 +111,8 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
                         for (const finding of enriched) {
                             aggregatedReportData.findingsSummary.count++;
 
-                            if (aggregatedReportData.findingsForDisplay.length < 100) {
-                                aggregatedReportData.findingsForDisplay.push(finding);
-                            }
+                            // Store all findings without artificial capping
+                            aggregatedReportData.findingsForDisplay.push(finding);
 
                             const currency = finding.currency || 'USD';
                             const currentTotal = aggregatedReportData.findingsSummary.totalAmounts.get(currency) || new Prisma.Decimal(0);
@@ -194,11 +193,16 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
                 issueCount: issues.length
             });
 
+            const totalDetected = issues.length;
+
+            // Updated return block with explicit mappings and total counts exposed
             return {
+                ruleId: this.ruleId,
                 status: issues.length > 0 ? 'WARNING' : 'PASSED',
                 message: report,
-                issues
-            };
+                issues,
+                totalDetected
+            } as unknown as RuleExecutionResult;
 
         } catch (error) {
             logger.error(`Rule ${this.ruleId} failed`, {

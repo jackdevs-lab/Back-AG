@@ -215,6 +215,28 @@ export class RuleEngine {
         this.logger.info(`Registered ${ruleRegistry.getCount()} rules`);
     }
 
+    private async executeRuleWithTimeout(rule: IRule, context: RuleContext): Promise<RuleExecutionResult> {
+        const RULE_TIMEOUT_MS = 30_000;
+
+        try {
+            const result = await Promise.race([
+                rule.execute(context),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error(`Rule ${rule.id} timed out after ${RULE_TIMEOUT_MS}ms`)), RULE_TIMEOUT_MS)
+                ),
+            ]);
+
+            return result;
+        } catch (error) {
+            this.logger.error(`Execution failed or timed out for rule ${rule.id}`, error as Error);
+            return {
+                ruleId: rule.id,
+                issues: [],
+                status: 'FAILED',
+                error: (error as Error).message,
+            } as RuleExecutionResult;
+        }
+    }
 
     async runAllRules(): Promise<{ issues: Issue[], checks: any[] }> {
         const allIssues: Issue[] = [];
@@ -234,24 +256,27 @@ export class RuleEngine {
                     logger: this.logger.child({ ruleId: rule.id })
                 };
 
-                const result = await rule.execute(context);
+                const result = await this.executeRuleWithTimeout(rule, context);
                 const durationMs = Date.now() - startTime;
 
-                allIssues.push(...result.issues);
+                if (result.issues) {
+                    allIssues.push(...result.issues);
+                }
+
                 allChecks.push({
                     ruleId: rule.id,
                     ruleName: rule.name,
                     category: rule.category,
                     severity: rule.severity,
                     status: result.status,
-                    message: result.message,
-                    issueCount: result.issues.length,
+                    message: result.message || (result as any).error,
+                    issueCount: result.issues ? result.issues.length : 0,
                     durationMs
                 });
 
                 this.logger.debug(`Rule ${rule.id} completed`, {
                     status: result.status,
-                    issueCount: result.issues.length,
+                    issueCount: result.issues ? result.issues.length : 0,
                     durationMs
                 });
             } catch (error) {
@@ -293,7 +318,7 @@ export class RuleEngine {
             logger: this.logger.child({ ruleId })
         };
 
-        return rule.execute(context);
+        return this.executeRuleWithTimeout(rule, context);
     }
 
     async runRulesByCategory(category: string): Promise<{ issues: Issue[], checks: any[] }> {
@@ -307,15 +332,18 @@ export class RuleEngine {
                 const result = await this.runRule(rule.id);
                 const durationMs = Date.now() - startTime;
 
-                allIssues.push(...result.issues);
+                if (result.issues) {
+                    allIssues.push(...result.issues);
+                }
+
                 allChecks.push({
                     ruleId: rule.id,
                     ruleName: rule.name,
                     category: rule.category,
                     severity: rule.severity,
                     status: result.status,
-                    message: result.message,
-                    issueCount: result.issues.length,
+                    message: result.message || (result as any).error,
+                    issueCount: result.issues ? result.issues.length : 0,
                     durationMs
                 });
             } catch (error) {

@@ -57,6 +57,7 @@ export class QbApiClient {
 
         this.client = axios.create({
             baseURL,
+            timeout: 30_000,
             headers: {
                 'Authorization': `Bearer ${this.token}`,
                 'Intuit-RealmId': this.realmId,
@@ -119,11 +120,16 @@ export class QbApiClient {
                                 tenantId: this.tenantId
                             });
 
-                            this.refreshTokenPromise = oauthService
-                                .refreshIfNeeded(this.realmId, this.tenantId)
-                                .finally(() => {
-                                    this.refreshTokenPromise = null;
+                            const refreshPromise = oauthService.refreshIfNeeded(this.realmId, this.tenantId);
+                            this.refreshTokenPromise = refreshPromise;
+
+                            refreshPromise.finally(() => {
+                                setImmediate(() => {
+                                    if (this.refreshTokenPromise === refreshPromise) {
+                                        this.refreshTokenPromise = null;
+                                    }
                                 });
+                            });
                         }
 
                         const newToken = await this.refreshTokenPromise;
@@ -194,11 +200,21 @@ export class QbApiClient {
         const safePageSize = Math.min(Math.max(1, pageSize), 1000);
         const safeStartPosition = Math.max(1, startPosition);
 
-        const queryString =
-            `SELECT * FROM ${entityType} ${whereClause} ` +
-            `MAXRESULTS ${safePageSize} STARTPOSITION ${safeStartPosition}`
-                .replace(/\s+/g, ' ')
-                .trim();
+        let normalized = whereClause.trim();
+
+        // Strip any embedded pagination commands
+        normalized = normalized
+            .replace(/STARTPOSITION\s+\d+/gi, '')
+            .replace(/MAXRESULTS\s+\d+/gi, '');
+
+        // Ensure leading WHERE keyword if clause is non-empty
+        if (normalized && !/^WHERE\s/i.test(normalized)) {
+            normalized = `WHERE ${normalized}`;
+        }
+
+        const queryString = `SELECT * FROM ${entityType} ${normalized} MAXRESULTS ${safePageSize} STARTPOSITION ${safeStartPosition}`
+            .replace(/\s+/g, ' ')
+            .trim();
 
         try {
             const response = await this.client.get<QbQueryResponse<T>>(
@@ -231,11 +247,15 @@ export class QbApiClient {
     }
 
     async cdc(entities: string[], changedSince: string): Promise<QbCdcResponse> {
+        let normalizedChangedSince = changedSince;
+
         try {
+            normalizedChangedSince = new Date(changedSince).toISOString().split('.')[0] + 'Z';
+
             const response = await this.client.get<QbCdcResponse>(`/company/${this.realmId}/cdc`, {
                 params: {
                     entities: entities.join(','),
-                    changedSince
+                    changedSince: normalizedChangedSince
                 }
             });
             return response.data;
@@ -245,7 +265,7 @@ export class QbApiClient {
 
             logger.error('QB CDC request failed', axiosError, {
                 entities,
-                changedSince,
+                changedSince: normalizedChangedSince,
                 realmId: this.realmId,
                 tenantId: this.tenantId,
                 qbFault

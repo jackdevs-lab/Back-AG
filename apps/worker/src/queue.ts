@@ -1,12 +1,16 @@
 import { Queue, QueueEvents } from 'bullmq';
 import { logger } from '@qb-health/utils';
+import Redis from 'ioredis';
 
-const redisConfig = {
+export const redisConfig = {
     host: process.env.REDIS_HOST,
     port: parseInt(process.env.REDIS_PORT || '6379'),
     password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null
 };
+
+// Export an active Redis client instance
+export const redis = new Redis(redisConfig);
 
 export const syncQueue = new Queue('qb-sync', { connection: redisConfig });
 export const analysisQueue = new Queue('qb-analysis', { connection: redisConfig });

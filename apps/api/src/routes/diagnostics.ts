@@ -118,10 +118,12 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         }
 
         // 1. Fetch the data FIRST
+        // Fetch the latest fully completed diagnostic run
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
                 tenantId,
-                connectionId
+                connectionId,
+                status: 'COMPLETED'
             },
             orderBy: { runAt: 'desc' },
             include: {
@@ -136,8 +138,12 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         if (!latestRun) {
             return res.json({
                 success: true,
-                data: null,
-                message: 'No diagnostic runs found'
+                data: {
+                    status: 'PENDING',
+                    issues: [],
+                    checks: []
+                },
+                message: 'No completed diagnostic runs found'
             });
         }
 

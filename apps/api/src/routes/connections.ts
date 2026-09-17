@@ -6,16 +6,20 @@ import { syncQueue } from '../queue';
 import { decrypt, logger } from '@qb-health/utils';
 import { oauthService } from '@qb-health/qb-client';
 import { deleteConnectionData } from '../services/connection-cleanup';
+import crypto from 'crypto';
+
+export const SYNC_COOLDOWN_MS = 60_000;
+
 const router: Router = Router();
 const QB_BASE_URL = process.env.QB_ENVIRONMENT === 'sandbox'
     ? 'https://sandbox-quickbooks.api.intuit.com'
     : 'https://quickbooks.api.intuit.com';
+
 // GET all connections for the current tenant
 router.get('/', async (req: AuthRequest, res: Response, next) => {
     try {
         const { tenantId } = req;
 
-        // 1. Separate the return keyword to return void
         if (!tenantId) {
             res.status(401).json({
                 success: false,
@@ -44,9 +48,7 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
 
         for (const connection of connections) {
             try {
-                // Ensure tenantId is passed as a string
                 await oauthService.refreshIfNeeded(connection.realmId, tenantId as string);
-
                 activeConnections.push(connection);
             } catch (error: any) {
                 const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
@@ -71,13 +73,11 @@ router.get('/', async (req: AuthRequest, res: Response, next) => {
             }
         }
 
-        // 2. Standard response (implicitly returns void)
         res.json({
             success: true,
             data: activeConnections
         });
     } catch (error) {
-        // 3. Error passing (implicitly returns void)
         next(error);
     }
 });
@@ -185,8 +185,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
             });
         }
 
-        // 1. Fetch connection(s). If realmId is passed, match specifically; 
-        // otherwise, query all active connections for this tenant.
         const connections = await prisma.qbConnection.findMany({
             where: {
                 tenantId,
@@ -228,7 +226,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
         let anyConnected = false;
         let anyRevoked = false;
 
-        // 2. Loop over connections to check validity and purge if revoked
         for (const connection of connections) {
             let accessToken: string;
 
@@ -245,7 +242,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                     error: error?.message || error,
                 });
 
-                // FIX: Catch the specific Intuit revocation error right here
                 const isRevoked = error?.response?.data?.error === 'invalid_grant' || error?.response?.status === 401;
 
                 if (isRevoked) {
@@ -259,7 +255,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                     anyRevoked = true;
                 }
 
-                // Could not obtain access token; skip to next connection test
                 continue;
             }
 
@@ -293,7 +288,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                 continue;
             }
 
-            // 3. Access token rejected -> Attempt forced refresh
             if (qbResponse.status === 401) {
                 logger.warn('QuickBooks access token rejected; attempting forced refresh', {
                     tenantId,
@@ -337,7 +331,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                             { tenantId, realmId: connection.realmId }
                         );
 
-                        // DEFINITIVE REVOCATION PROOF -> PURGE DB
                         await deleteConnectionData(connection.id, tenantId as string);
                         anyRevoked = true;
                     }
@@ -351,7 +344,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
                         }
                     );
 
-                    // DEFINITIVE REVOCATION PROOF -> PURGE DB
                     await deleteConnectionData(connection.id, tenantId as string);
                     anyRevoked = true;
                 }
@@ -400,9 +392,6 @@ router.post('/verify-and-sync', async (req: AuthRequest, res: Response) => {
 });
 
 // DELETE connection
-// DELETE connection
-// DELETE connection
-// DELETE connection
 router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
@@ -422,7 +411,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // Revoke the QuickBooks refresh token
         try {
             const rawEncryptedToken = connection.refreshToken?.trim();
             const clientId = process.env.QB_CLIENT_ID?.trim();
@@ -470,11 +458,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next) => {
                 connectionId: id,
                 error: revokeError,
             });
-
-            // Continue with local cleanup even if Intuit revocation fails.
         }
 
-        // Centralized local cleanup
         const deleted = await deleteConnectionData(id, tenantId);
 
         if (!deleted) {
@@ -523,14 +508,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next) => {
     }
 });
 
-// POST sync trigger (Bulletproofed with fallback array for sandbox bypass)
-// POST sync trigger 
+// POST sync trigger
 router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
     try {
         const { id } = req.params;
         const { tenantId } = req;
 
-        // Fetch connection AND the tenant to check the isBypassed flag
         const connection = await prisma.qbConnection.findUnique({
             where: { id },
             include: { tenant: true }
@@ -540,13 +523,11 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Validate subscription status with bypass logic
         const isSandboxEnv = process.env.QB_ENVIRONMENT?.toLowerCase() === 'sandbox';
         const allowedDemoRealms = [process.env.INTUIT_DEMO_REALM_ID].filter(Boolean);
         const isDemoSandbox = allowedDemoRealms.includes(connection.realmId);
         const isBypassed = connection.tenant?.isBypassed || false;
 
-        // Block ONLY if they have no active sub AND aren't hitting a sandbox/reviewer bypass
         if (connection.subscriptionStatus !== 'ACTIVE' && !isDemoSandbox && !isSandboxEnv && !isBypassed) {
             res.status(402).json({
                 success: false,
@@ -557,18 +538,25 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             return;
         }
 
-        // 2. Prevent overlapping syncs based on database status
-        if (connection.syncStatus === 'SYNCING') {
-            throw new AppError('A sync is already in progress for this company.', 409);
+        const staleThreshold = new Date(Date.now() - 2 * 60_000);
+        const isActivelySyncing = connection.syncStatus === 'SYNCING' &&
+            connection.lastHeartbeatAt &&
+            connection.lastHeartbeatAt > staleThreshold;
+
+        if (isActivelySyncing) {
+            res.status(409).json({
+                success: false,
+                error: 'Sync in progress',
+                message: 'A sync is currently in progress for this connection.'
+            });
+            return;
         }
 
-        // 3. 5-Minute Sync Cooldown Check
         if (connection.updatedAt) {
             const timeDelta = Date.now() - connection.updatedAt.getTime();
-            const COOLDOWN_MS = 6000; // 5 minutes
 
-            if (timeDelta < COOLDOWN_MS) {
-                const retryAfterSeconds = Math.ceil((COOLDOWN_MS - timeDelta) / 1000);
+            if (timeDelta < SYNC_COOLDOWN_MS) {
+                const retryAfterSeconds = Math.ceil((SYNC_COOLDOWN_MS - timeDelta) / 1000);
                 res.status(429).json({
                     error: "Cooldown active",
                     retryAfterSeconds
@@ -577,22 +565,25 @@ router.post('/:id/sync', async (req: AuthRequest, res: Response, next) => {
             }
         }
 
-        // REMOVED THE OPTIMISTIC prisma.qbConnection.update HERE.
-        // Let the worker set it to SYNCING safely when it actually starts.
+        // 1. Generate Correlation ID for E2E traceability
+        const correlationId = crypto.randomUUID();
 
-        // 4. Queue the sync job
         const job = await syncQueue.add('trigger-sync', {
             realmId: connection.realmId,
             tenantId,
             type: 'manual',
-            connectionId: id
+            connectionId: id,
+            correlationId // 2. Pass to worker
         }, {
-            jobId: `sync-${id}-${Date.now()}`
+            jobId: `sync:${id}`,
+            removeOnComplete: true,
+            removeOnFail: true
         });
 
         res.json({
             success: true,
             jobId: job.id,
+            correlationId,
             message: 'Sync queued'
         });
     } catch (error) {

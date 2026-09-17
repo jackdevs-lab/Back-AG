@@ -1,6 +1,7 @@
 import { createLogger } from '@qb-health/utils';
 import { RealmId } from '@qb-health/financial-model';
 import { BatchUpsertOptions } from './sync-types';
+// import { Prisma } from '@prisma/client'; // Uncomment if you need strict typing for TransactionClient
 
 function chunk<T>(array: T[], size: number): T[][] {
     const chunked: T[][] = [];
@@ -17,7 +18,7 @@ export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
 
 // Table-specific unique constraint mapping based on schema.prisma
 const TABLE_CONFLICT_TARGETS: Record<string, string[]> = {
-    RuleFinding: ['tenantId', 'realmId', 'ruleId', 'qbId', 'syncToken'],
+    RuleFinding: ['tenantId', 'realmId', 'ruleId', 'qbId'],
     RuleConfig: ['tenantId', 'realmId', 'ruleId'],
     QbSyncState: ['realmId', 'entityType'],
     QbConnection: ['tenantId', 'realmId'],
@@ -42,15 +43,25 @@ export class BatchUpsertService {
         return TABLE_CONFLICT_TARGETS[tableName] || TABLE_CONFLICT_TARGETS.DEFAULT;
     }
 
-    private deduplicateRecords<T extends Record<string, any>>(records: T[], tableName: string): T[] {
+    // FIX 5.6 I6: Deduplication based on qbId + realmId, keeping the newest syncToken
+    private deduplicateRecords<T extends Record<string, any>>(records: T[], tableName: string, realmId: string): T[] {
         const map = new Map<string, T>();
-        const keyColumns = this.getConflictColumns(tableName);
-
         for (const record of records) {
-            const key = keyColumns.map((col) => String(record[col] ?? '')).join(':');
-            map.set(key, record);
+            const key = `${record.qbId}_${realmId}`;
+            const existing = map.get(key);
+            if (existing) {
+                const existingToken = parseInt(existing.syncToken ?? '0', 10);
+                const newToken = parseInt(record.syncToken ?? '0', 10);
+                if (newToken > existingToken) {
+                    map.set(key, record);
+                }
+                this.logger.warn('Duplicate record in batch, kept newest', {
+                    tableName, key, existingToken, newToken,
+                });
+            } else {
+                map.set(key, record);
+            }
         }
-
         return Array.from(map.values());
     }
 
@@ -61,6 +72,26 @@ export class BatchUpsertService {
         realmId: RealmId,
         options: ExtendedBatchUpsertOptions = {}
     ): Promise<number> {
+        return this.executeBatchQuery(prisma, records, tableName, String(realmId), options);
+    }
+
+    // FIX 5.4 C7: Expose transaction-aware variant for atomic dual-table batch upserts
+    async batchUpsertTx(
+        tx: any, // Prisma.TransactionClient
+        records: Record<string, any>[],
+        tableName: string,
+        realmId: string
+    ): Promise<number> {
+        return this.executeBatchQuery(tx, records, tableName, realmId);
+    }
+
+    private async executeBatchQuery<T extends Record<string, any>>(
+        client: any,
+        records: T[],
+        tableName: string,
+        realmId: string,
+        options: ExtendedBatchUpsertOptions = {}
+    ): Promise<number> {
         const { chunkSize = 500, concurrencyLimit = 1 } = options;
         let successfulCount = 0;
 
@@ -68,7 +99,7 @@ export class BatchUpsertService {
             return successfulCount;
         }
 
-        const uniqueRecords = this.deduplicateRecords(records, tableName);
+        const uniqueRecords = this.deduplicateRecords(records, tableName, realmId);
         const batches = chunk(uniqueRecords, chunkSize);
 
         this.logger.info(`Starting batch upsert for ${tableName}`, {
@@ -93,8 +124,11 @@ export class BatchUpsertService {
         const immutableColumns = new Set(['id', 'createdAt', ...conflictColumns]);
         const updateColumns = columns.filter((c) => !immutableColumns.has(c));
 
+        // FIX 5.5 I5: COALESCE Update Columns to preserve existing data if incoming is null
         const updateSet = updateColumns.length > 0
-            ? updateColumns.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ')
+            ? updateColumns
+                .map((c) => `"${c}" = COALESCE(EXCLUDED."${c}", "${tableName}"."${c}")`)
+                .join(', ')
             : null;
 
         for (let i = 0; i < batches.length; i += concurrencyLimit) {
@@ -104,8 +138,8 @@ export class BatchUpsertService {
                 currentBatches.map(async (batch, index) => {
                     const batchNum = i + index + 1;
                     try {
-                        const count = await this.executeBatchQuery(
-                            prisma,
+                        const count = await this.executeRawBatchQuery(
+                            client,
                             tableName,
                             columns,
                             quotedColumns,
@@ -122,12 +156,21 @@ export class BatchUpsertService {
                     } catch (error: any) {
                         const errorMsg = error?.message || String(error);
 
-                        // Prevent individual fallback loops for structural SQL errors (e.g. missing constraint or table)
-                        if (error?.code === '42704' || errorMsg.includes('ON CONFLICT')) {
-                            this.logger.error(`Fatal SQL constraint mismatch for ${tableName}. Aborting batch without fallback.`, error, {
-                                tableName,
-                                realmId
-                            });
+                        // FIX 5.7 I8: Expand Structural Error Codes
+                        const STRUCTURAL_PG_CODES = new Set([
+                            '42P01', // undefined_table
+                            '42703', // undefined_column
+                            '42704', // undefined_object
+                            '42601', // syntax_error
+                            '42804', // datatype_mismatch
+                            '23502', // not_null_violation
+                            '08006', // connection_failure
+                            '08003', // connection_does_not_exist
+                            '53300', // too_many_connections
+                        ]);
+
+                        if (STRUCTURAL_PG_CODES.has(error?.code) || errorMsg.includes('ON CONFLICT')) {
+                            this.logger.error(`Fatal SQL error for ${tableName}. Aborting batch.`, error, { tableName, realmId });
                             throw error;
                         }
 
@@ -138,7 +181,7 @@ export class BatchUpsertService {
                         });
 
                         const fallbackCount = await this.executeIndividualFallback(
-                            prisma,
+                            client,
                             tableName,
                             columns,
                             quotedColumns,
@@ -162,8 +205,8 @@ export class BatchUpsertService {
         return successfulCount;
     }
 
-    private async executeBatchQuery<T extends Record<string, any>>(
-        prisma: any,
+    private async executeRawBatchQuery<T extends Record<string, any>>(
+        client: any,
         tableName: string,
         columns: string[],
         quotedColumns: string,
@@ -208,32 +251,39 @@ export class BatchUpsertService {
             ON CONFLICT (${quotedConflictTargets})
             ${conflictClause}
         `;
-
         if (updateSet && columns.includes('updatedAt')) {
-            query += ` WHERE "${tableName}"."updatedAt" < EXCLUDED."updatedAt" OR "${tableName}"."updatedAt" IS NULL`;
+            const hasSyncToken = columns.includes('syncToken');
+
+            query += hasSyncToken
+                ? ` WHERE "${tableName}"."updatedAt" < EXCLUDED."updatedAt"` +
+                ` OR ("${tableName}"."updatedAt" = EXCLUDED."updatedAt" AND "${tableName}"."syncToken"::int < EXCLUDED."syncToken"::int)` +
+                ` OR "${tableName}"."updatedAt" IS NULL`
+                : ` WHERE "${tableName}"."updatedAt" < EXCLUDED."updatedAt"` +
+                ` OR "${tableName}"."updatedAt" IS NULL`;
         }
 
-        await prisma.$executeRawUnsafe(query, ...values);
-        return batch.length;
+        // FIX 5.1 C1: Return actual affected row count instead of assumed batch length
+        const affected = await client.$executeRawUnsafe(query, ...values);
+        return affected;
     }
 
     private async executeIndividualFallback<T extends Record<string, any>>(
-        prisma: any,
+        client: any,
         tableName: string,
         columns: string[],
         quotedColumns: string,
         quotedConflictTargets: string,
         updateSet: string | null,
         batch: T[],
-        realmId: RealmId
+        realmId: string
     ): Promise<number> {
         let saved = 0;
         let errorCount = 0;
 
         for (const singleRecord of batch) {
             try {
-                await this.executeBatchQuery(
-                    prisma,
+                const count = await this.executeRawBatchQuery(
+                    client,
                     tableName,
                     columns,
                     quotedColumns,
@@ -241,7 +291,7 @@ export class BatchUpsertService {
                     updateSet,
                     [singleRecord]
                 );
-                saved++;
+                saved += count;
             } catch (err) {
                 errorCount++;
                 // Limit individual log output to prevent Railway log rate-limit saturation

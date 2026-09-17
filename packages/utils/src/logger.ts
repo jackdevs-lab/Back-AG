@@ -1,79 +1,93 @@
 import pino from 'pino';
 
-const pinoLogger = pino({
-    level: process.env.LOG_LEVEL || 'info',
-    transport: process.env.NODE_ENV === 'development' ? {
+// 7.3 H6: Ensure pino-pretty only mounts inside interactive dev TTY terminals
+const transport = process.env.NODE_ENV === 'development' && process.stdout.isTTY
+    ? pino.transport({
         target: 'pino-pretty',
         options: {
             colorize: true,
             translateTime: 'SYS:standard',
             ignore: 'pid,hostname'
         }
-    } : undefined,
+    })
+    : undefined;
+
+export const baseLogger = pino({
+    level: process.env.LOG_LEVEL || 'info',
     base: {
         service: 'qb-health-monitor',
         env: process.env.NODE_ENV
     }
-});
+}, transport);
 
 export interface LogContext {
     tenantId?: string;
     realmId?: string;
     jobId?: string;
     userId?: string;
+    correlationId?: string;
     [key: string]: any;
 }
 
+// Standardized logging wrapper to enforce object-first or string-first consistency
 export class Logger {
-    private baseLogger: pino.Logger;
+    private childLogger: pino.Logger;
 
-    constructor(context?: LogContext) {
-        this.baseLogger = context ? pinoLogger.child(context) : pinoLogger;
+    constructor(bindings: Record<string, any> = {}) {
+        this.childLogger = baseLogger.child(bindings);
     }
 
-    info(message: string, data?: any) {
-        this.baseLogger.info(data, message);
+    info(msg: string, obj?: Record<string, any>): void {
+        if (obj) {
+            this.childLogger.info(obj, msg);
+        } else {
+            this.childLogger.info(msg);
+        }
     }
 
-    error(message: string, error?: any, data?: any) {
-        const errorData = error instanceof Error 
-            ? { 
-                message: error.message, 
-                stack: error.stack,
-                name: error.name,
-                ...(error as any).code && { code: (error as any).code },
-                ...(error as any).status && { status: (error as any).status },
-                ...(error as any).response?.data && { responseData: (error as any).response.data }
-              } 
-            : error;
+    error(msg: string, err?: Error | unknown, obj?: Record<string, any>): void {
+        const errorData = err instanceof Error
+            ? {
+                message: err.message,
+                stack: err.stack,
+                name: err.name,
+                ...(err as any).code && { code: (err as any).code },
+                ...(err as any).status && { status: (err as any).status },
+                ...(err as any).response?.data && { responseData: (err as any).response.data }
+            }
+            : err;
 
-        this.baseLogger.error({
-            error: errorData,
-            ...data
-        }, message);
+        const payload = { ...obj, ...(err instanceof Error ? { err: errorData } : { error: errorData }) };
+        this.childLogger.error(payload, msg);
     }
 
-    warn(message: string, data?: any) {
-        this.baseLogger.warn(data, message);
+    warn(msg: string, obj?: Record<string, any>): void {
+        if (obj) {
+            this.childLogger.warn(obj, msg);
+        } else {
+            this.childLogger.warn(msg);
+        }
     }
 
-    debug(message: string, data?: any) {
-        this.baseLogger.debug(data, message);
+    debug(msg: string, obj?: Record<string, any>): void {
+        if (obj) {
+            this.childLogger.debug(obj, msg);
+        } else {
+            this.childLogger.debug(msg);
+        }
     }
 
-    fatal(message: string, error?: any, data?: any) {
-        const errorData = error instanceof Error 
-            ? { message: error.message, stack: error.stack, name: error.name } 
-            : error;
+    fatal(msg: string, err?: Error | unknown, obj?: Record<string, any>): void {
+        const errorData = err instanceof Error
+            ? { message: err.message, stack: err.stack, name: err.name }
+            : err;
 
-        this.baseLogger.fatal({
-            error: errorData,
-            ...data
-        }, message);
+        const payload = { ...obj, ...(err instanceof Error ? { err: errorData } : { error: errorData }) };
+        this.childLogger.fatal(payload, msg);
     }
 
     child(context: LogContext): Logger {
-        return new Logger({ ...this.baseLogger.bindings(), ...context });
+        return new Logger({ ...this.childLogger.bindings(), ...context });
     }
 }
 

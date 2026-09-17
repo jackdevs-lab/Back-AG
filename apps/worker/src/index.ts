@@ -2,15 +2,18 @@ import 'dotenv/config';
 import { Worker } from 'bullmq';
 import { syncQueue } from './queue';
 import { analysisProcessor, AnalysisJobData } from './processors/analysis-processor';
-import { logger } from '@qb-health/utils';
+import { Logger } from '@qb-health/utils';
 import { syncProcessor } from './processors/sync-processor';
 import { prisma } from '@qb-health/financial-model';
 
-console.log(`[WORKER] Starting workers...`);
-console.log(`[WORKER] Redis connection: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+// Standardized structured logger replacement for raw console output
+const logger = new Logger({ module: 'worker-bootstrap' });
+
+logger.info('Starting QB worker process...');
+logger.info(`Redis connection: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
 
 syncQueue.on('error', (err: Error) => {
-    console.error(`[WORKER] ❌ Queue connection error:`, err);
+    logger.error('Queue connection error', err);
 });
 
 const redisConfig = {
@@ -22,18 +25,25 @@ const redisConfig = {
 
 async function clearStaleSyncStates() {
     try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000);
         const result = await prisma.qbConnection.updateMany({
-            where: { syncStatus: 'SYNCING' },
+            where: {
+                syncStatus: 'SYNCING',
+                OR: [
+                    { lastHeartbeatAt: { lt: fiveMinutesAgo } },
+                    { lastHeartbeatAt: null }
+                ]
+            },
             data: {
                 syncStatus: 'ERROR',
-                lastSyncMessage: 'Sync interrupted due to worker process restart.'
+                lastSyncMessage: 'Sync interrupted due to worker process crash or heartbeat timeout.'
             }
         });
         if (result.count > 0) {
-            logger.warn(`[WORKER] Cleared ${result.count} stale sync states on startup.`);
+            logger.warn(`Cleared ${result.count} stale sync states on startup.`);
         }
     } catch (err) {
-        logger.error('[WORKER] Failed to clear stale sync states', err);
+        logger.error('Failed to clear stale sync states', err);
     }
 }
 

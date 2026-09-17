@@ -16,12 +16,12 @@ enum SubscriptionStatus {
 }
 
 model Tenant {
-  id          String          @id @default(uuid())
+  id          String         @id @default(uuid())
   name        String
-  email       String          @unique
-  isBypassed  Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  email       String         @unique
+  isBypassed  Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   diagnostics DiagnosticRun[]
   connections QbConnection[]
   users       User[]
@@ -74,12 +74,14 @@ model QbConnection {
   issues                   Issue[]
   tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lastSyncMessage          String?            @db.Text
+  lastHeartbeatAt          DateTime?
 
   @@unique([tenantId, realmId])
   @@index([realmId])
   @@index([subscriptionStatus])
   @@index([currentPeriodEnd])
 }
+
 model QbSyncState {
   id         String   @id @default(uuid())
   tenantId   String
@@ -92,17 +94,17 @@ model QbSyncState {
   @@unique([realmId, entityType], name: "realmId_entityType")
   @@index([tenantId, realmId])
 }
+
 model RuleFinding {
   id          String   @id @default(uuid())
   tenantId    String
   realmId     String
   ruleId      String
   qbId        String
-  syncToken   Int      @default(0)
   findingData Json
   createdAt   DateTime @default(now())
 
-  @@unique([tenantId, realmId, ruleId, qbId, syncToken])
+  @@unique([tenantId, realmId, ruleId, qbId])
   @@index([tenantId, realmId, ruleId])
   @@index([tenantId, qbId])
 }
@@ -190,22 +192,24 @@ model Vendor {
 }
 
 model DiagnosticRun {
-  id           String            @id @default(uuid())
-  tenantId     String
-  runAt        DateTime          @default(now())
-  healthScore  Int
-  status       String            @default("COMPLETED")
-  errorMessage String?
-  metadata     Json?
-  connectionId String
-  checks       DiagnosticCheck[]
-  connection   QbConnection?     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  issues       Issue[]
+  id            String            @id @default(uuid())
+  tenantId      String
+  runAt         DateTime          @default(now())
+  healthScore   Int
+  status        String            @default("COMPLETED")
+  errorMessage  String?
+  metadata      Json?
+  connectionId  String
+  correlationId String?
+  checks        DiagnosticCheck[]
+  connection    QbConnection?     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  issues        Issue[]
 
   @@index([tenantId, connectionId])
   @@index([connectionId])
   @@index([runAt])
+  @@index([correlationId])          
 }
 
 model DiagnosticCheck {
@@ -226,20 +230,21 @@ model DiagnosticCheck {
 }
 
 model Issue {
-  id           String        @id @default(uuid())
-  connectionId String
-  runId        String
-  ruleId       String
-  ruleName     String
-  severity     String
-  message      String
-  fingerprint  String?
-  entities     Json
-  isResolved   Boolean       @default(false)
-  resolvedAt   DateTime?
-  createdAt    DateTime      @default(now())
-  connection   QbConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  run          DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  id            String        @id @default(uuid())
+  connectionId  String
+  runId         String
+  ruleId        String
+  ruleName      String
+  severity      String
+  message       String
+  fingerprint   String?
+  entities      Json
+  isResolved    Boolean       @default(false)
+  resolvedAt    DateTime?
+  correlationId String?
+  createdAt     DateTime      @default(now())
+  connection    QbConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  run           DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([connectionId])
   @@index([runId])
@@ -247,6 +252,7 @@ model Issue {
   @@index([severity])
   @@index([fingerprint])
   @@index([connectionId, isResolved])
+  @@index([correlationId])
 }
 
 model SyncLog {
@@ -258,11 +264,13 @@ model SyncLog {
   durationMs    Int
   status        String
   errorMessage  String?
+  correlationId String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
 
   @@index([tenantId, realmId])
   @@index([createdAt])
+  @@index([correlationId])
 }
 
 model BankTransaction {
@@ -310,11 +318,11 @@ model Reconciliation {
 }
 
 model RuleConfig {
-  tenantId   String
-  realmId    String
-  ruleId     String
-  json       Json     @default("{}")
-  updatedAt  DateTime @updatedAt
+  tenantId  String
+  realmId   String
+  ruleId    String
+  json      Json     @default("{}")
+  updatedAt DateTime @updatedAt
 
   @@id([tenantId, realmId, ruleId])
   @@index([tenantId, realmId])
