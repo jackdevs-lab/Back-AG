@@ -2,7 +2,7 @@ import { Job } from 'bullmq';
 import { RuleEngine } from '@qb-health/rule-engine';
 import { HealthScoreCalculator } from '@qb-health/diagnostics';
 import { prisma } from '@qb-health/financial-model';
-import { logger } from '@qb-health/utils';
+import { logger, byteSize, chunkByBytes } from '@qb-health/utils';
 import { sendAlert, AlertData } from '@qb-health/notifications';
 import crypto from 'crypto';
 
@@ -13,14 +13,8 @@ export interface AnalysisJobData {
     correlationId?: string;
 }
 
-// Helper function to chunk arrays to prevent memory/serialization limits
-function chunkArray<T>(array: T[], size: number): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-        chunks.push(array.slice(i, i + size));
-    }
-    return chunks;
-}
+const MAX_ROW_BYTES = Number(process.env.MAX_ROW_BYTES ?? 100 * 1024);          // 100 KB
+const BATCH_BYTES = Number(process.env.BULK_INSERT_BATCH_BYTES ?? 5 * 1024 * 1024); // 5 MB
 
 export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     success: boolean;
@@ -97,7 +91,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         const totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // ✅ FIX 1: Create the parent DiagnosticRun FIRST (without nested creates)
+        // Create the parent DiagnosticRun FIRST (without nested creates)
         const diagnosticRun = await prisma.diagnosticRun.create({
             data: {
                 tenantId,
@@ -116,38 +110,63 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             }
         });
 
-        // ✅ FIX 2: Chunk and insert Issues (500 at a time to prevent "Invalid string length")
-        const issueChunks = chunkArray(issues, 500);
+        // Map once, with the per-row guard.
+        const issueRows = (issues as any[]).map((issue) => {
+            const row = {
+                runId: diagnosticRun.id,
+                connectionId,
+                correlationId,
+                ruleId: issue.ruleId,
+                ruleName: issue.ruleName,
+                severity: issue.severity,
+                message: issue.message,
+                entities: issue.entities || [],
+            };
+            const size = byteSize(row);
+            if (size > MAX_ROW_BYTES) {
+                throw new Error(
+                    `Issue row exceeds ${MAX_ROW_BYTES} bytes ` +
+                    `(ruleId=${row.ruleId}, size=${size}). Normalize or truncate before insert.`
+                );
+            }
+            return row;
+        });
+
+        // Chunk by serialized bytes, not by count.
+        const issueChunks = chunkByBytes(issueRows, BATCH_BYTES);
         for (const chunk of issueChunks) {
             await prisma.issue.createMany({
-                data: chunk.map((issue: any) => ({
-                    runId: diagnosticRun.id,       // Links to DiagnosticRun
-                    connectionId,
-                    correlationId,
-                    ruleId: issue.ruleId,
-                    ruleName: issue.ruleName,
-                    severity: issue.severity,
-                    message: issue.message,
-                    entities: issue.entities || [] // Prisma handles arrays as JSON automatically
-                })),
+                data: chunk,
                 skipDuplicates: true,
             });
         }
 
-        // ✅ FIX 3: Chunk and insert Checks (500 at a time)
-        const checkChunks = chunkArray(checks, 500);
+        // Map checks first, with the per-row guard.
+        const checkRows = (checks as any[]).map((check) => {
+            const row = {
+                runId: diagnosticRun.id,
+                ruleId: check.ruleId,
+                ruleName: check.ruleName,
+                category: check.category,
+                severity: check.severity,
+                status: check.status,
+                message: check.message,
+                durationMs: check.durationMs,
+            };
+            const size = byteSize(row);
+            if (size > MAX_ROW_BYTES) {
+                throw new Error(
+                    `Check row exceeds ${MAX_ROW_BYTES} bytes ` +
+                    `(ruleId=${row.ruleId}, size=${size}).`
+                );
+            }
+            return row;
+        });
+
+        const checkChunks = chunkByBytes(checkRows, BATCH_BYTES);
         for (const chunk of checkChunks) {
             await prisma.diagnosticCheck.createMany({
-                data: chunk.map((check: any) => ({
-                    runId: diagnosticRun.id,       // Links to DiagnosticRun
-                    ruleId: check.ruleId,
-                    ruleName: check.ruleName,
-                    category: check.category,
-                    severity: check.severity,
-                    status: check.status,
-                    message: check.message,
-                    durationMs: check.durationMs
-                })),
+                data: chunk,
                 skipDuplicates: true,
             });
         }

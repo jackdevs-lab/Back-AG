@@ -238,7 +238,7 @@ model Issue {
   severity      String
   message       String
   fingerprint   String?
-  entities      Json
+  entities      IssueEntity[]
   isResolved    Boolean       @default(false)
   resolvedAt    DateTime?
   correlationId String?
@@ -253,6 +253,14 @@ model Issue {
   @@index([fingerprint])
   @@index([connectionId, isResolved])
   @@index([correlationId])
+}
+model IssueEntity {
+  id       String @id @default(cuid())
+  issueId  String
+  entityId String
+  issue    Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  @@index([issueId])
+  @@index([entityId])
 }
 
 model SyncLog {

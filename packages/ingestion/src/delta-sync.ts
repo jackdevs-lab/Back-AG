@@ -381,33 +381,38 @@ export class DeltaSync {
     }
 
     private async autoResolveDeletedIssues(deletedQbIds: string[]): Promise<void> {
+        if (deletedQbIds.length === 0) return;
+
         const whereCondition = this.connectionId
             ? { connectionId: String(this.connectionId), isResolved: false }
             : { tenantId: String(this.tenantId), realmId: String(this.realmId), isResolved: false };
 
-        const openIssues = await prisma.issue.findMany({
-            where: whereCondition,
-            select: { id: true, entities: true },
+        const CHUNK = 5000;
+        const issueIds = new Set<string>();
+
+        for (let i = 0; i < deletedQbIds.length; i += CHUNK) {
+            const slice = deletedQbIds.slice(i, i + CHUNK);
+            const found = await prisma.issue.findMany({
+                where: {
+                    ...whereCondition,
+                    entities: { some: { entityId: { in: slice } } },
+                },
+                select: { id: true },
+            });
+            for (const row of found) issueIds.add(row.id);
+        }
+
+        if (issueIds.size === 0) return;
+
+        await prisma.issue.updateMany({
+            where: { id: { in: [...issueIds] } },
+            data: { isResolved: true, resolvedAt: new Date() },
         });
 
-        const issueIdsToResolve = openIssues
-            .filter((issue) => {
-                const entityList = (issue.entities as Array<{ qbId: string }>) || [];
-                return entityList.some((e) => deletedQbIds.includes(String(e.qbId)));
-            })
-            .map((issue) => issue.id);
-
-        if (issueIdsToResolve.length > 0) {
-            await prisma.issue.updateMany({
-                where: { id: { in: issueIdsToResolve } },
-                data: { isResolved: true, resolvedAt: new Date() },
-            });
-
-            this.logger.info(
-                `Auto-resolved ${issueIdsToResolve.length} issues corresponding to deleted QBO entities`,
-                { realmId: this.realmId, tenantId: this.tenantId }
-            );
-        }
+        this.logger.info(
+            `Auto-resolved ${issueIds.size} issues corresponding to deleted QBO entities`,
+            { realmId: this.realmId, tenantId: this.tenantId }
+        );
     }
 
     private createSuccessResult(

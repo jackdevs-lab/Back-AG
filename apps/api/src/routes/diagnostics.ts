@@ -117,8 +117,9 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Fetch the data FIRST
-        // Fetch the latest fully completed diagnostic run
+        // 1. Fetch the latest fully completed diagnostic run.
+        //    Issues include only a _count of the entities relation — we never
+        //    need the entity rows themselves on this endpoint.
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
                 tenantId,
@@ -129,9 +130,12 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             include: {
                 issues: {
                     orderBy: { severity: 'desc' },
-                    take: 50
+                    take: 50,
+                    include: {
+                        _count: { select: { entities: true } },
+                    },
                 },
-                checks: true
+                checks: true,
             }
         });
 
@@ -149,11 +153,11 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
 
         // 2. Prepare the summary/teaser metadata
         const metadata = (latestRun.metadata as any) || {};
-        let criticalCount = metadata.criticalCount;
-        let warningCount = metadata.warningCount;
-        let infoCount = metadata.infoCount;
-        let totalEntities = metadata.entitiesAffected;
-        let totalExposureStr = metadata.totalExposure;
+        let criticalCount: number | undefined = metadata.criticalCount;
+        let warningCount: number | undefined = metadata.warningCount;
+        let infoCount: number | undefined = metadata.infoCount;
+        let totalEntities: number | undefined = metadata.entitiesAffected;
+        let totalExposureStr: string | undefined = metadata.totalExposure;
 
         const isMetadataComplete =
             criticalCount !== undefined &&
@@ -163,20 +167,27 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             totalExposureStr !== undefined;
 
         let issueCount = isMetadataComplete
-            ? (criticalCount + warningCount + infoCount)
+            ? (criticalCount! + warningCount! + infoCount!)
             : 0;
 
-        // Fallback logic if metadata is incomplete
+        // Fallback logic if metadata is incomplete.
+        // Uses _count instead of loading the entities relation so we never
+        // materialise entity rows just to compute a total.
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
-                select: { ruleId: true, severity: true, entities: true, message: true }
+                select: {
+                    ruleId: true,
+                    severity: true,
+                    message: true,
+                    _count: { select: { entities: true } },
+                }
             });
 
             criticalCount = allIssuesSummary.filter(i => i.severity === 'CRITICAL').length;
             warningCount = allIssuesSummary.filter(i => i.severity === 'WARNING').length;
             infoCount = allIssuesSummary.filter(i => i.severity === 'INFO').length;
-            totalEntities = allIssuesSummary.reduce((sum, i) => sum + ((i.entities as any[])?.length ?? 0), 0);
+            totalEntities = allIssuesSummary.reduce((sum, i) => sum + i._count.entities, 0);
             issueCount = allIssuesSummary.length;
 
             const uniqueRuleMessages = Array.from(
@@ -222,21 +233,21 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 scoreLabel: scoreBreakdown.grade,
                 scoreColor: scoreBreakdown.color,
                 scoreBreakdown,
-                criticalCount: criticalCount || 0,
-                warningCount: warningCount || 0,
-                infoCount: infoCount || 0,
+                criticalCount: criticalCount ?? 0,
+                warningCount: warningCount ?? 0,
+                infoCount: infoCount ?? 0,
                 issueCount,
                 totalIssues: issueCount,
-                totalEntities: totalEntities || 0,
-                affectedEntitiesCount: totalEntities || 0,
+                totalEntities: totalEntities ?? 0,
+                affectedEntitiesCount: totalEntities ?? 0,
                 totalExposure: totalExposureStr,
                 summary: {
                     totalIssues: issueCount,
-                    criticalCount: criticalCount || 0,
-                    warningCount: warningCount || 0,
-                    infoCount: infoCount || 0,
-                    affectedEntitiesCount: totalEntities || 0,
-                    totalEntities: totalEntities || 0,
+                    criticalCount: criticalCount ?? 0,
+                    warningCount: warningCount ?? 0,
+                    infoCount: infoCount ?? 0,
+                    affectedEntitiesCount: totalEntities ?? 0,
+                    totalEntities: totalEntities ?? 0,
                     totalExposure: totalExposureStr
                 },
                 // Conditional inclusion based on lock status
@@ -247,13 +258,11 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     ruleName: issue.ruleName,
                     severity: issue.severity,
                     message: issue.message,
-                    entityCount: Array.isArray(issue.entities) ? issue.entities.length : 0,
+                    entityCount: issue._count.entities,
                     isResolved: issue.isResolved
                 }))
             }
         });
-
-        // ... (rest of the handler code remains the same)
     } catch (error) {
         return next(error);
     }
