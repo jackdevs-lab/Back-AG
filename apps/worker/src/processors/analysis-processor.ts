@@ -13,6 +13,15 @@ export interface AnalysisJobData {
     correlationId?: string;
 }
 
+// Helper function to chunk arrays to prevent memory/serialization limits
+function chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+        chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+}
+
 export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
     success: boolean;
     diagnosticRunId: string;
@@ -88,7 +97,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
 
         const totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // Persist correlationId when writing DiagnosticRun and Issue rows
+        // ✅ FIX 1: Create the parent DiagnosticRun FIRST (without nested creates)
         const diagnosticRun = await prisma.diagnosticRun.create({
             data: {
                 tenantId,
@@ -103,31 +112,45 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                     entitiesAffected,
                     totalExposure: totalExposureStr,
                     currencyBreakdown
-                },
-                issues: {
-                    create: issues.map((issue: any) => ({
-                        connectionId,
-                        correlationId, // Cascaded Traceability
-                        ruleId: issue.ruleId,
-                        ruleName: issue.ruleName,
-                        severity: issue.severity,
-                        message: issue.message,
-                        entities: issue.entities || []
-                    }))
-                },
-                checks: {
-                    create: checks.map((check: any) => ({
-                        ruleId: check.ruleId,
-                        ruleName: check.ruleName,
-                        category: check.category,
-                        severity: check.severity,
-                        status: check.status,
-                        message: check.message,
-                        durationMs: check.durationMs
-                    }))
                 }
             }
         });
+
+        // ✅ FIX 2: Chunk and insert Issues (500 at a time to prevent "Invalid string length")
+        const issueChunks = chunkArray(issues, 500);
+        for (const chunk of issueChunks) {
+            await prisma.issue.createMany({
+                data: chunk.map((issue: any) => ({
+                    runId: diagnosticRun.id,       // Links to DiagnosticRun
+                    connectionId,
+                    correlationId,
+                    ruleId: issue.ruleId,
+                    ruleName: issue.ruleName,
+                    severity: issue.severity,
+                    message: issue.message,
+                    entities: issue.entities || [] // Prisma handles arrays as JSON automatically
+                })),
+                skipDuplicates: true,
+            });
+        }
+
+        // ✅ FIX 3: Chunk and insert Checks (500 at a time)
+        const checkChunks = chunkArray(checks, 500);
+        for (const chunk of checkChunks) {
+            await prisma.diagnosticCheck.createMany({
+                data: chunk.map((check: any) => ({
+                    runId: diagnosticRun.id,       // Links to DiagnosticRun
+                    ruleId: check.ruleId,
+                    ruleName: check.ruleName,
+                    category: check.category,
+                    severity: check.severity,
+                    status: check.status,
+                    message: check.message,
+                    durationMs: check.durationMs
+                })),
+                skipDuplicates: true,
+            });
+        }
 
         await job.updateProgress(90);
 
@@ -171,7 +194,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                 data: {
                     tenantId,
                     connectionId,
-                    correlationId, // Ensure trace ID is retained on failure
+                    correlationId,
                     healthScore: 0,
                     status: 'FAILED',
                     errorMessage: errorMessage
