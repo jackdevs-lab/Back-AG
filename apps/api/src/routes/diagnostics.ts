@@ -58,13 +58,18 @@ router.get('/overview/:connectionId', async (req: AuthRequest, res: Response, ne
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
-                select: { ruleId: true, severity: true, entities: true, message: true }
+                select: {
+                    ruleId: true,
+                    severity: true,
+                    message: true,
+                    _count: { select: { entities: true } },
+                }
             });
 
             criticalCount = allIssuesSummary.filter(i => i.severity === 'CRITICAL').length;
             warningCount = allIssuesSummary.filter(i => i.severity === 'WARNING').length;
             infoCount = allIssuesSummary.filter(i => i.severity === 'INFO').length;
-            totalEntities = allIssuesSummary.reduce((sum, i) => sum + ((i.entities as any[])?.length ?? 0), 0);
+            totalEntities = allIssuesSummary.reduce((sum, i) => sum + i._count.entities, 0);
 
             const uniqueRuleMessages = Array.from(
                 new Map(allIssuesSummary.map(issue => [issue.ruleId, issue.message])).values()
@@ -263,6 +268,126 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 }))
             }
         });
+    } catch (error) {
+        return next(error);
+    }
+});
+router.get('/runs/:runId/issues', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { runId } = req.params;
+        const { tenantId } = req;
+        const { ruleId, severity, limit = '100', offset = '0' } = req.query;
+
+        const parsedLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
+        const parsedOffset = Math.max(Number(offset) || 0, 0);
+
+        const run = await prisma.diagnosticRun.findFirst({
+            where: { id: runId, tenantId },
+            select: { id: true },
+        });
+        if (!run) throw new AppError('Run not found', 404);
+
+        const where = {
+            runId,
+            ...(ruleId ? { ruleId: String(ruleId) } : {}),
+            ...(severity ? { severity: String(severity) } : {}),
+        };
+
+        const [total, issues] = await Promise.all([
+            prisma.issue.count({ where }),
+            prisma.issue.findMany({
+                where,
+                orderBy: [{ severity: 'desc' }, { id: 'asc' }],
+                take: parsedLimit,
+                skip: parsedOffset,
+                select: {
+                    id: true,
+                    ruleId: true,
+                    ruleName: true,
+                    severity: true,
+                    message: true,
+                    isResolved: true,
+                    _count: { select: { entities: true } },
+                },
+            }),
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                total,
+                limit: parsedLimit,
+                offset: parsedOffset,
+                issues: issues.map(({ _count, ...rest }) => ({
+                    ...rest,
+                    entityCount: _count.entities,
+                })),
+            },
+        });
+    } catch (error) {
+        return next(error);
+    }
+});
+router.get('/runs/:runId/rules', async (req: AuthRequest, res: Response, next) => {
+    try {
+        const { runId } = req.params;
+        const { tenantId } = req;
+
+        const run = await prisma.diagnosticRun.findFirst({
+            where: { id: runId, tenantId },
+            select: { id: true },
+        });
+        if (!run) throw new AppError('Run not found', 404);
+
+        const grouped = await prisma.issue.groupBy({
+            by: ['ruleId', 'ruleName', 'severity'],
+            where: { runId },
+            _count: { _all: true },
+        });
+
+        // Entity counts per rule, one query, no issue-row traversal.
+        const entityCounts = await prisma.$queryRaw<
+            { ruleId: string; entityCount: bigint }[]
+        >`
+            SELECT i."ruleId" AS "ruleId", COUNT(e.id)::bigint AS "entityCount"
+            FROM "Issue" i
+            LEFT JOIN "IssueEntity" e ON e."issueId" = i.id
+            WHERE i."runId" = ${runId}
+            GROUP BY i."ruleId"
+        `;
+        const entityMap = new Map(
+            entityCounts.map(r => [r.ruleId, Number(r.entityCount)])
+        );
+
+        const SEVERITY_RANK: Record<string, number> = { CRITICAL: 3, WARNING: 2, INFO: 1 };
+        const byRule = new Map<string, {
+            ruleId: string; ruleName: string; severity: string;
+            issueCount: number; entityCount: number;
+        }>();
+
+        for (const g of grouped) {
+            const existing = byRule.get(g.ruleId);
+            if (!existing) {
+                byRule.set(g.ruleId, {
+                    ruleId: g.ruleId,
+                    ruleName: g.ruleName,
+                    severity: g.severity,
+                    issueCount: g._count._all,
+                    entityCount: entityMap.get(g.ruleId) ?? 0,
+                });
+            } else {
+                existing.issueCount += g._count._all;
+                const cur = SEVERITY_RANK[g.severity] ?? 0;
+                const prev = SEVERITY_RANK[existing.severity] ?? 0;
+                if (cur > prev) existing.severity = g.severity;
+            }
+        }
+
+        const rules = [...byRule.values()].sort((a, b) =>
+            (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0)
+        );
+
+        res.json({ success: true, data: { rules } });
     } catch (error) {
         return next(error);
     }
