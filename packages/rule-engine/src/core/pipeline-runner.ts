@@ -159,13 +159,14 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
                 ruleName: this.ruleName,
                 severity: (this.ctx as any).severity || 'WARNING',
                 message: '',
+                // Per-finding fields — must survive the pipeline so the worker can
+                // persist them and the UI can render distinct rows.
+                label: typeof f.label === 'string' ? f.label : null,
+                deepLink: typeof f.deepLink === 'string' ? f.deepLink : null,
                 fingerprint: f.fingerprint,
                 metadata: {
                     impactScore: f.impactScore,
                     fingerprint: f.fingerprint,
-                    // exposureAmount carries the numeric amount so that consumers
-                    // (e.g. analysis-processor) can sum total exposure from structured
-                    // data rather than regex-parsing the free-text report message.
                     exposureAmount: typeof f.amount?.toNumber === 'function'
                         ? f.amount.toNumber()
                         : Number(f.amount ?? 0),
@@ -183,7 +184,9 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
             }
 
             issues.forEach(issue => {
-                issue.message = report;
+                // Prefer the per-finding label (specific to this row) over the
+                // rule-level report (same string on every row).
+                issue.message = issue.label && issue.label.length > 0 ? issue.label : report;
             });
 
             logger.info(`Rule ${this.ruleId} executed successfully`, {

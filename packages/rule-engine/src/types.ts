@@ -22,6 +22,8 @@ export interface Issue {
     entities: any[];
     fingerprint?: string;
     metadata?: any;
+    label?: string | null;
+    deepLink?: string | null;
 }
 
 export interface RuleExecutionResult {
