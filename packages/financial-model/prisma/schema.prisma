@@ -242,6 +242,7 @@ model Issue {
   isResolved    Boolean       @default(false)
   resolvedAt    DateTime?
   correlationId String?
+  deepLink String?
   createdAt     DateTime      @default(now())
   connection    QbConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   run           DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)

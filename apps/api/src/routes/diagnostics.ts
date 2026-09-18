@@ -307,6 +307,8 @@ router.get('/runs/:runId/issues', async (req: AuthRequest, res: Response, next) 
                     severity: true,
                     message: true,
                     isResolved: true,
+                    deepLink: true,
+                    entities: { select: { entityId: true } },
                     _count: { select: { entities: true } },
                 },
             }),
@@ -318,9 +320,10 @@ router.get('/runs/:runId/issues', async (req: AuthRequest, res: Response, next) 
                 total,
                 limit: parsedLimit,
                 offset: parsedOffset,
-                issues: issues.map(({ _count, ...rest }) => ({
+                issues: issues.map(({ _count, entities, ...rest }) => ({
                     ...rest,
                     entityCount: _count.entities,
+                    entityIds: entities.map(e => e.entityId),
                 })),
             },
         });

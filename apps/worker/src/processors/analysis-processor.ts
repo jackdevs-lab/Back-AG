@@ -27,6 +27,7 @@ type IssueRow = {
     ruleName: string;
     severity: string;
     message: string;
+    deepLink: string | null;
 };
 
 type IssueEntityRow = {
@@ -99,21 +100,12 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
         for (const issue of issues as any[]) {
             const issueId = randomUUID();
 
-            const originalMessage = typeof issue.message === 'string'
-                ? issue.message
-                : String(issue.message ?? '');
-            const truncated = truncateMessage(originalMessage);
-            if (truncated !== originalMessage) {
-                truncatedCount++;
-                // One-line diagnostic so you can find the fat rule. Remove once
-                // the offending rule emits a bounded message.
-                jobLogger.warn('Issue message truncated', {
-                    ruleId: issue.ruleId,
-                    originalBytes: byteSize(originalMessage),
-                    truncatedBytes: byteSize(truncated),
-                    head: originalMessage.slice(0, 200),
-                });
-            }
+            // Prefer the per-finding `label` (specific to THIS finding) over the
+            // rule-level summary (identical across every finding from the same rule).
+            const perFindingMessage =
+                (typeof issue.label === 'string' && issue.label.length > 0)
+                    ? issue.label
+                    : (typeof issue.message === 'string' ? issue.message : '');
 
             issueRows.push({
                 id: issueId,
@@ -123,7 +115,8 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                 ruleId: issue.ruleId,
                 ruleName: issue.ruleName,
                 severity: issue.severity,
-                message: truncated,
+                message: truncateMessage(perFindingMessage),
+                deepLink: typeof issue.deepLink === 'string' ? issue.deepLink : null,
             });
 
             const list = Array.isArray(issue.entities) ? issue.entities : [];
