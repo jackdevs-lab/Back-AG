@@ -20,6 +20,7 @@ export class UnappliedPaymentsRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<DataResult<any[]>, NormalizedBatch, { findings: any[] }, any>(
             ctx, this.id, this.name, this.version
         )
@@ -70,6 +71,7 @@ export class UnappliedPaymentsRule implements IRule {
                         date: new Date(date),
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`,
                         fingerprint: generateFingerprint([this.id, pay.qbId]),
                         impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
                         metadata: {

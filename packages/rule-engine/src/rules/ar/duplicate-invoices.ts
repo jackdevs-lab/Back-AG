@@ -20,6 +20,7 @@ export class DuplicateInvoicesRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -76,6 +77,7 @@ export class DuplicateInvoicesRule implements IRule {
                         amount,
                         currency: first.qboData.CurrencyRef?.value || 'USD',
                         date: new Date(first.qboData.TxnDate || first.date),
+                        deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${realmId}&txnId=${cluster.map(c => c.qbId).join(',')}`,
                         metadata: {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: cluster.map(c => c.qbId)

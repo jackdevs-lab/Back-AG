@@ -57,6 +57,8 @@ export class DeletedAccountReferenceRule implements IRule {
     version = '3.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
+
         return new PipelineRunner<
             DataPayload[],
             NormalizedPayload,
@@ -113,12 +115,24 @@ export class DeletedAccountReferenceRule implements IRule {
             })
             .withEnrichment((det: DetectionPayload, ctx: RuleContext): EnrichedFinding[] => {
                 return det.findings.map((f: any): EnrichedFinding => {
+                    let qboPath = 'txndetail';
+                    switch (f.txn.type?.toLowerCase()) {
+                        case 'journalentry': qboPath = 'journal'; break;
+                        case 'bill': qboPath = 'bill'; break;
+                        case 'deposit': qboPath = 'deposit'; break;
+                        case 'purchase': qboPath = 'expense'; break;
+                        case 'invoice': qboPath = 'invoice'; break;
+                        case 'payment': qboPath = 'recvpayment'; break;
+                        case 'vendorcredit': qboPath = 'vendorcredit'; break;
+                    }
+
                     return {
                         id: f.txn.qbId,
                         label: `${f.txn.type || 'Transaction'} ${f.txn.qbId} - References deleted account \`${f.accountId}\``,
                         date: new Date(f.txn.date),
                         amount: f.txn.amount,
                         currency: f.txn.rawData?.CurrencyRef?.value || 'USD',
+                        deepLink: `https://sandbox.qbo.intuit.com/app/${qboPath}?realmId=${realmId}&txnId=${f.txn.qbId}`,
                         metadata: {
                             accountId: f.accountId,
                             detailType: f.detailType,

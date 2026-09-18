@@ -30,6 +30,7 @@ export class OverAppliedPaymentRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             { normalized: NormalizedItem[]; unscannable: any[] },
@@ -84,6 +85,7 @@ export class OverAppliedPaymentRule implements IRule {
                         date: date,
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`,
                         fingerprint,
                         impactScore,
                         metadata: {

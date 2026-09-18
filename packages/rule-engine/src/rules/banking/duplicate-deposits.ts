@@ -34,6 +34,7 @@ export class DuplicateDepositsRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -82,6 +83,7 @@ export class DuplicateDepositsRule implements IRule {
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
                         date: new Date(date),
+                        deepLink: cluster.map(c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`) as any,
                         metadata: {
                             clusterIds: cluster.map(c => c.qbId),
                             qbId: f.qbId,

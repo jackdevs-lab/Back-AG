@@ -46,6 +46,7 @@ export class DuplicateVendorBillsRule implements IRule {
     version = '2.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<RawBatchItem[], NormalizationResult, DetectionResult, EnrichedFinding>(
             ctx,
             this.id,
@@ -104,6 +105,7 @@ export class DuplicateVendorBillsRule implements IRule {
                         date: duplicate.bills[0].date,
                         amount: duplicate.amount,
                         currency: duplicate.currency,
+                        deepLink: duplicate.bills.map(b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`) as any,
                         metadata: {
                             vendorId: duplicate.vendorId,
                             docNumber: duplicate.docNumber,

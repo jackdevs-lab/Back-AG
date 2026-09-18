@@ -1,5 +1,4 @@
-﻿
-import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch, fetchTransactionQbIds } from '../../core/shared/data-primitives';
 import {
@@ -20,6 +19,15 @@ const CombinedTxnSchema = z.union([
     CreditMemoRawSchema
 ]);
 
+// Same map that formatReport uses — kept in sync deliberately so the
+// in-app deep link and the PDF report link point to the same place.
+const QBO_ROUTE_MAP: Record<string, string> = {
+    invoice: 'invoice',
+    bill: 'bill',
+    payment: 'recvpayment',
+    creditmemo: 'creditmemo'
+};
+
 export class BrokenTransactionLinkRule implements IRule {
     id: RuleId = 'BROKEN_TRANSACTION_LINK' as unknown as RuleId;
     name = 'Linked Transaction Inconsistency';
@@ -29,6 +37,8 @@ export class BrokenTransactionLinkRule implements IRule {
     version = '3.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;   // <-- captured for use inside withEnrichment
+
         const allIdsRecords = await fetchTransactionQbIds(ctx.repo, {
             realmId: ctx.realmId,
             excludeStatus: ['Voided', 'Deleted']
@@ -64,21 +74,30 @@ export class BrokenTransactionLinkRule implements IRule {
                 return { findings };
             })
             .withEnrichment((detections: any): EnrichedFinding[] => {
-                return detections.findings.map((f: any) => ({
-                    id: f.source.qbId,
-                    label: `Broken link to ${f.link.TxnType || 'transaction'} ${f.link.TxnId}`,
-                    date: f.source.date,
-                    amount: f.source.amount || 0,
-                    currency: f.source.qboData?.CurrencyRef?.value || 'USD',
-                    fingerprint: generateFingerprint([this.id, f.source.qbId, f.link.TxnId]),
-                    metadata: {
-                        impactScore: 30,
-                        sourceType: f.source.rawData?.TxnType || f.source.type || 'Transaction',
-                        targetId: f.link.TxnId,
-                        targetType: f.link.TxnType || 'Unknown'
-                    },
-                    entities: [{ id: f.source.qbId }, { id: f.link.TxnId }]
-                }));
+                return detections.findings.map((f: any) => {
+                    const sourceType = f.source.rawData?.TxnType || f.source.type || 'Transaction';
+                    const routePath = QBO_ROUTE_MAP[sourceType.toLowerCase()] || sourceType.toLowerCase();
+                    const deepLink = sourceType
+                        ? `https://sandbox.qbo.intuit.com/app/${routePath}?realmId=${realmId}&txnId=${f.source.qbId}`
+                        : undefined;
+
+                    return {
+                        id: f.source.qbId,
+                        label: `Broken link to ${f.link.TxnType || 'transaction'} ${f.link.TxnId}`,
+                        date: f.source.date,
+                        amount: f.source.amount || 0,
+                        currency: f.source.qboData?.CurrencyRef?.value || 'USD',
+                        fingerprint: generateFingerprint([this.id, f.source.qbId, f.link.TxnId]),
+                        metadata: {
+                            impactScore: 30,
+                            sourceType,
+                            targetId: f.link.TxnId,
+                            targetType: f.link.TxnType || 'Unknown'
+                        },
+                        entities: [{ id: f.source.qbId }, { id: f.link.TxnId }],
+                        deepLink
+                    };
+                });
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
                 return formatSummary(reportData, unscannable);

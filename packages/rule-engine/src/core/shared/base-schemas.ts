@@ -143,6 +143,7 @@ export const EnrichedFindingSchema = z.object({
     currency: z.string().default('USD'),
     metadata: z.record(z.string(), z.any()).optional(),
     entities: z.array(z.any()).optional(),
+    deepLink: z.string().optional()
 });
 
 export type EnrichedFinding = z.infer<typeof EnrichedFindingSchema>;

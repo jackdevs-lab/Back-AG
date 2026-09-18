@@ -20,6 +20,7 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -127,6 +128,7 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
                         date: new Date(payDate),
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`,
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             paymentId: pay.qbId,

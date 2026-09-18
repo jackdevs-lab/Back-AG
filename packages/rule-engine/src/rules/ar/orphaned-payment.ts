@@ -21,6 +21,7 @@ export class OrphanedPaymentRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -83,6 +84,7 @@ export class OrphanedPaymentRule implements IRule {
                         date: new Date(date),
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`,
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             qbId: f.qbId,

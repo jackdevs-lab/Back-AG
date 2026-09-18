@@ -19,6 +19,7 @@ export class IncorrectDepositRecordingRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<any[], NormalizedBatch, { findings: any[] }, EnrichedFinding>(
             ctx, this.id, this.name, this.version
         )
@@ -61,6 +62,7 @@ export class IncorrectDepositRecordingRule implements IRule {
                         date: new Date(date),
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
+                        deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${d.qbId}`,
                         fingerprint: generateFingerprint([this.id, d.qbId]),
                         impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
                         metadata: { qbId: d.qbId },

@@ -19,6 +19,7 @@ export class DuplicatePaymentRule implements IRule {
     version = '3.1.2';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -78,6 +79,7 @@ export class DuplicatePaymentRule implements IRule {
                         amount: amount,
                         currency: first.qboData.CurrencyRef?.value || 'USD',
                         fingerprint: fingerprint,
+                        deepLink: cluster.map((c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`) as any,
                         metadata: {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: clusterIds,
