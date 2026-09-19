@@ -1,4 +1,5 @@
-﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿// rule.ts
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
@@ -79,7 +80,6 @@ export class DuplicatePaymentRule implements IRule {
                         amount: amount,
                         currency: first.qboData.CurrencyRef?.value || 'USD',
                         fingerprint: fingerprint,
-                        deepLink: cluster.map((c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`) as any,
                         metadata: {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: clusterIds,
@@ -91,7 +91,8 @@ export class DuplicatePaymentRule implements IRule {
                             type: 'Payment',
                             amount,
                             date: new Date(c.qboData.TxnDate || c.date)
-                        }))
+                        })),
+                        deepLink: cluster.map((c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`) as any
                     } as EnrichedFinding;
                 });
             })

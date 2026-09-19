@@ -1,3 +1,4 @@
+// rule.ts
 import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -16,6 +17,7 @@ export class BillDateInFutureRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<any[], { normalized: z.infer<typeof BillRawSchema>[]; unscannable: any[] }, { findings: any[] }, EnrichedFinding>(ctx, this.id, this.name, this.version)
             .withData(async (repo, realmId) => transactionGenerator(repo, { realmId, type: 'Bill' }))
 
@@ -35,6 +37,7 @@ export class BillDateInFutureRule implements IRule {
                     amount: f.amount,
                     currency: f.qboData?.CurrencyRef?.name || 'USD',
                     fingerprint: generateFingerprint([this.id, f.qbId]),
+                    deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
                 }));
             })
 

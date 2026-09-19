@@ -52,14 +52,6 @@ type FinalEnrichedFinding = EnrichedFinding & {
 const AGING_THRESHOLD_DAYS = 60;
 const UNRECONCILED_TYPES = ['Check', 'Deposit', 'Transfer', 'JournalEntry'];
 
-const QBO_BANKING_ROUTE_MAP: Record<string, string> = {
-    check: 'check',
-    deposit: 'deposit',
-    transfer: 'transfer',
-    journal: 'journal',
-    journalentry: 'journal'
-};
-
 export class UnreconciledTransactionAgingRule implements IRule {
     id: RuleId = 'UNRECONCILED_TRANSACTION_AGING' as unknown as RuleId;
     name = 'Unreconciled Transaction Aging';
@@ -112,12 +104,8 @@ export class UnreconciledTransactionAgingRule implements IRule {
                     const daysOld = Math.floor((Date.now() - parsedDate.getTime()) / 86400000);
                     const txnType = f.type || raw.TxnType || raw.type || 'Transaction';
 
-                    const normalizedType = String(txnType).toLowerCase().replace(/[^a-z]/g, '');
-                    const routePath = QBO_BANKING_ROUTE_MAP[normalizedType];
-                    const qboBaseUrl = 'https://sandbox.qbo.intuit.com';
-                    const deepLink = routePath
-                        ? `${qboBaseUrl}/app/${routePath}?txnId=${f.qbId}&txnid=${f.qbId}`
-                        : `${qboBaseUrl}/app/reconcile`;
+                    let route = txnType.toLowerCase();
+                    if (route === 'journalentry') route = 'journal';
 
                     return {
                         id: f.qbId,
@@ -126,7 +114,6 @@ export class UnreconciledTransactionAgingRule implements IRule {
                         date: parsedDate,
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
-                        deepLink,
                         fingerprint: generateFingerprint([this.id, f.qbId]),
                         impactScore: Math.min(100, Math.round(20 + Math.min(80, daysOld / 5))),
                         metadata: {
@@ -134,7 +121,8 @@ export class UnreconciledTransactionAgingRule implements IRule {
                             daysOld,
                             txnType: txnType
                         },
-                        entities: [{ id: f.qbId, type: txnType, amount, date: parsedDate }]
+                        entities: [{ id: f.qbId, type: txnType, amount, date: parsedDate }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/${route}?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

@@ -1,3 +1,4 @@
+// rule.ts
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
@@ -20,6 +21,7 @@ export class BillPaymentWithoutBillRule implements IRule {
     version = '1.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -90,7 +92,8 @@ export class BillPaymentWithoutBillRule implements IRule {
                             auditMetadata: {
                                 scoreContribution: impactScore
                             }
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.qbId || f.id}`
                     };
                 });
             })

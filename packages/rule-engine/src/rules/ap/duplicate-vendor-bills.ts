@@ -1,4 +1,5 @@
-﻿import { z } from 'zod';
+﻿// rule.ts
+import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -105,7 +106,6 @@ export class DuplicateVendorBillsRule implements IRule {
                         date: duplicate.bills[0].date,
                         amount: duplicate.amount,
                         currency: duplicate.currency,
-                        deepLink: duplicate.bills.map(b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`) as any,
                         metadata: {
                             vendorId: duplicate.vendorId,
                             docNumber: duplicate.docNumber,
@@ -116,7 +116,8 @@ export class DuplicateVendorBillsRule implements IRule {
                             qbId: b.qbId,
                             date: b.date,
                             amount: b.qboData.Balance || b.amount
-                        }))
+                        })),
+                        deepLink: duplicate.bills.map(b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`) as any
                     };
                 });
             })

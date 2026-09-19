@@ -1,4 +1,5 @@
-﻿import { z } from 'zod';
+﻿// rule.ts
+import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -16,6 +17,7 @@ export class PaymentBeforeBillRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             { normalized: any[]; unscannable: any[] },
@@ -100,7 +102,11 @@ export class PaymentBeforeBillRule implements IRule {
                             billDate: f.bill.date,
                             vendorId: f.payment.vendorId
                         },
-                        entities: [f.payment, f.bill]
+                        entities: [f.payment, f.bill],
+                        deepLink: [
+                            `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.payment.qbId}`,
+                            `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.bill.qbId}`
+                        ] as any
                     };
                 });
             })

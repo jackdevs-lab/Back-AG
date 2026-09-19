@@ -1,3 +1,4 @@
+// rule.ts
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -16,6 +17,7 @@ export class DuplicateBillPaymentsRule implements IRule {
     public category = 'AP_ERRORS' as const;
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         const seenPayments = new Map<string, any[]>();
 
         return new PipelineRunner<
@@ -75,7 +77,8 @@ export class DuplicateBillPaymentsRule implements IRule {
                             vendorId: f.vendorId
                         },
                         entities: f.clusterItems,
-                        fingerprint: generateFingerprint([this.id, f.qbId])
+                        fingerprint: generateFingerprint([this.id, f.qbId]),
+                        deepLink: f.clusterItems.map((entity: any) => `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${entity.qbId}`).join(', ')
                     };
 
                     return finding;

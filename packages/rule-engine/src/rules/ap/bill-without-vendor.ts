@@ -1,3 +1,4 @@
+// rule.ts
 import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -21,6 +22,7 @@ export class BillWithoutVendorRule implements IRule {
     version = '1.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<RawBatch, NormalizedBatch, DetectionOutput, EnrichedFinding[]>(
             ctx,
             this.id,
@@ -78,7 +80,8 @@ export class BillWithoutVendorRule implements IRule {
                             amount: amount,
                             currency: f.qboData?.CurrencyRef?.value || 'USD',
                             date: f.date
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

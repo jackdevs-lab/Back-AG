@@ -1,3 +1,4 @@
+// rule.ts
 import { z } from 'zod';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch, fetchVendorsByQbIds } from '../../core/shared/data-primitives';
@@ -15,6 +16,7 @@ export class VendorCreditsNotAppliedRule implements IRule {
     version = '3.1.2';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any,
             { normalized: z.infer<typeof VendorCreditRawSchema>[], unscannable: any[] },
@@ -69,7 +71,8 @@ export class VendorCreditsNotAppliedRule implements IRule {
                             unappliedBalance: f.qboData.Balance,
                             currency: f.qboData.CurrencyRef?.value || 'USD',
                             date: f.date
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/vendorcredit?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
 

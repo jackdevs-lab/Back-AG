@@ -1,4 +1,5 @@
-﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿// rule.ts
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { DepositRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
@@ -83,7 +84,6 @@ export class DuplicateDepositsRule implements IRule {
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
                         date: new Date(date),
-                        deepLink: cluster.map(c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`) as any,
                         metadata: {
                             clusterIds: cluster.map(c => c.qbId),
                             qbId: f.qbId,
@@ -95,7 +95,8 @@ export class DuplicateDepositsRule implements IRule {
                             amount,
                             date: new Date(date)
                         })),
-                        fingerprint: generateFingerprint([this.id, ...cluster.map(c => c.qbId)])
+                        fingerprint: generateFingerprint([this.id, ...cluster.map(c => c.qbId)]),
+                        deepLink: cluster.map(c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`) as any
                     } as EnrichedFinding;
                 });
             })

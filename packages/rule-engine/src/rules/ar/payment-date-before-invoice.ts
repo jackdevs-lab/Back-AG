@@ -1,3 +1,4 @@
+// rule.ts
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -128,7 +129,6 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
                         date: new Date(payDate),
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`,
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             paymentId: pay.qbId,
@@ -141,7 +141,8 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
                             amount,
                             paymentDate: new Date(payDate),
                             invoiceDate: invoiceDate
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`
                     };
                 });
             })

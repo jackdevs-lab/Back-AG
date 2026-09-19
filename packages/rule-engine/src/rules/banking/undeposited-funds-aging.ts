@@ -13,6 +13,7 @@ export class UndepositedFundsAgingRule implements IRule {
     category = 'BANK_ERRORS' as const;
 
     async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         const thresholdDate = new Date();
         thresholdDate.setDate(thresholdDate.getDate() - 30);
 
@@ -63,20 +64,24 @@ export class UndepositedFundsAgingRule implements IRule {
                 return { findings };
             })
             .withEnrichment((det) => {
-                const enriched: EnrichedFinding[] = det.findings.map((f: any) => ({
-                    id: f.qbId,
-                    label: `${f.type} Record`,
-                    date: new Date(f.date),
-                    amount: f.amount,
-                    currency: f.qboData?.CurrencyRef?.value || 'USD',
-                    metadata: {
-                        customer: f.qboData?.CustomerRef?.name || 'Unknown'
-                    },
-                    entities: [
-                        { id: f.qbId, type: f.type, amount: f.amount }
-                    ],
-                    fingerprint: generateFingerprint([this.id, f.qbId])
-                }));
+                const enriched: EnrichedFinding[] = det.findings.map((f: any) => {
+                    const route = f.type === 'Payment' ? 'recvpayment' : 'salesreceipt';
+                    return {
+                        id: f.qbId,
+                        label: `${f.type} Record`,
+                        date: new Date(f.date),
+                        amount: f.amount,
+                        currency: f.qboData?.CurrencyRef?.value || 'USD',
+                        metadata: {
+                            customer: f.qboData?.CustomerRef?.name || 'Unknown'
+                        },
+                        entities: [
+                            { id: f.qbId, type: f.type, amount: f.amount }
+                        ],
+                        fingerprint: generateFingerprint([this.id, f.qbId]),
+                        deepLink: `https://sandbox.qbo.intuit.com/app/${route}?realmId=${realmId}&txnId=${f.qbId}`
+                    };
+                });
 
                 return enriched;
             })

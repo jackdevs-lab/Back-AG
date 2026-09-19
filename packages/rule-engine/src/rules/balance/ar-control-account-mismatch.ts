@@ -21,6 +21,8 @@ export class ArControlAccountMismatchRule implements IRule {
     version = '3.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;   // <-- captured for enrichment closure
+
         return new PipelineRunner<RawDataBatch, NormalizedData, DetectionData, EnrichedData>(
             ctx,
             this.id,
@@ -68,7 +70,11 @@ export class ArControlAccountMismatchRule implements IRule {
                         currency: 'USD',
                         metadata: {
                             fingerprint: generateFingerprint([this.id, f.qbId])
-                        }
+                        },
+                        // Entities — without this, entityCount is 0 in the UI
+                        entities: [{ id: f.qbId }],
+                        // Deep link — journal entries live at /app/journal in QBO
+                        deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

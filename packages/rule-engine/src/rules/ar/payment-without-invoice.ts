@@ -1,4 +1,5 @@
-﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿// rule.ts
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { generateFingerprint } from '../../core/shared/utils';
@@ -20,6 +21,7 @@ export class PaymentWithoutInvoiceRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -81,7 +83,8 @@ export class PaymentWithoutInvoiceRule implements IRule {
                             type: 'Payment',
                             amount,
                             date: new Date(date)
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

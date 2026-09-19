@@ -1,3 +1,4 @@
+// rule.ts
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -19,6 +20,7 @@ export class NegativeApBalanceRule implements IRule {
     version = '3.4.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any,
             NormalizationOutput,
@@ -77,7 +79,8 @@ export class NegativeApBalanceRule implements IRule {
                                 type: 'Vendor',
                                 balance: amount
                             }
-                        ]
+                        ],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

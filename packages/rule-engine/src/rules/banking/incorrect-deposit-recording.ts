@@ -1,4 +1,5 @@
-﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿// rule.ts
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { DepositRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
@@ -62,11 +63,11 @@ export class IncorrectDepositRecordingRule implements IRule {
                         date: new Date(date),
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
-                        deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${d.qbId}`,
                         fingerprint: generateFingerprint([this.id, d.qbId]),
                         impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
                         metadata: { qbId: d.qbId },
-                        entities: [{ id: d.qbId, type: 'Deposit', amount, date: new Date(date) }]
+                        entities: [{ id: d.qbId, type: 'Deposit', amount, date: new Date(date) }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${d.qbId}`
                     };
                 });
             })

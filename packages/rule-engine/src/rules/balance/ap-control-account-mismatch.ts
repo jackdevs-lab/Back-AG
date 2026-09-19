@@ -1,3 +1,4 @@
+// rule.ts
 import { Prisma } from '@qb-health/financial-model';
 import { z } from 'zod';
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
@@ -27,6 +28,7 @@ export class ApControlAccountMismatchRule implements IRule {
     version = '3.0.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             TransactionBatchItem[],
             NormResult,
@@ -87,7 +89,8 @@ export class ApControlAccountMismatchRule implements IRule {
                     metadata: {
                         impactScore: calculateImpactScore(f.variance.toNumber())
                     },
-                    entities: [f.rawData]
+                    entities: [{ id: f.qbId }],
+                    deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
                 }));
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {

@@ -1,3 +1,4 @@
+// rule.ts
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { generateFingerprint } from '../../core/shared/utils';
@@ -36,6 +37,7 @@ export class OrphanedBillPaymentRule implements IRule {
     version = '3.2.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<RawTx[], NormalizedBatch, DetectionResult, EnrichedFinding>(ctx, this.id, this.name, this.version)
             .withData(async (repo, realmId) => {
                 const config = await fetchRuleConfig(repo, ctx.tenantId, realmId, this.id);
@@ -130,7 +132,8 @@ export class OrphanedBillPaymentRule implements IRule {
                             amount,
                             currency,
                             date: new Date(f.date)
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.qbId}`
                     };
                 });
             })

@@ -1,4 +1,5 @@
-﻿import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
+﻿// rule.ts
+import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { CreditMemoRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
@@ -19,6 +20,7 @@ export class UnappliedCreditMemosRule implements IRule {
     version = '3.1.0';
 
     public async execute(ctx: RuleContext): Promise<RuleExecutionResult> {
+        const realmId = ctx.realmId;
         return new PipelineRunner<
             any[],
             NormalizedBatch,
@@ -78,7 +80,8 @@ export class UnappliedCreditMemosRule implements IRule {
                             amount,
                             unappliedAmount: balance,
                             date: new Date(date)
-                        }]
+                        }],
+                        deepLink: `https://sandbox.qbo.intuit.com/app/creditmemo?realmId=${realmId}&txnId=${f.qbId}`
                     } as unknown as EnrichedFinding & { fingerprint: string; impactScore: number };
                 });
             })
