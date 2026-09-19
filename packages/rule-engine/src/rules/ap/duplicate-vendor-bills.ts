@@ -100,6 +100,15 @@ export class DuplicateVendorBillsRule implements IRule {
                     const billIds = duplicate.bills.map(b => b.qbId).sort();
                     const fingerprint = generateFingerprint([this.id, ...billIds]);
 
+                    // One finding = N duplicate bills. Emit every bill's URL
+                    // in metadata (array) so the UI can render a multi-link
+                    // view later, AND promote the first URL to the scalar
+                    // `deepLink` field so the pipeline/worker/UI can render
+                    // a clickable primary link today.
+                    const billLinks = duplicate.bills.map(
+                        b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`
+                    );
+
                     return {
                         id: fingerprint,
                         label: `Duplicate Bill for Vendor ${duplicate.vendorId}`,
@@ -110,14 +119,15 @@ export class DuplicateVendorBillsRule implements IRule {
                             vendorId: duplicate.vendorId,
                             docNumber: duplicate.docNumber,
                             fingerprint: fingerprint,
-                            duplicateCount: duplicate.bills.length
+                            duplicateCount: duplicate.bills.length,
+                            billLinks
                         },
                         entities: duplicate.bills.map(b => ({
                             qbId: b.qbId,
                             date: b.date,
                             amount: b.qboData.Balance || b.amount
                         })),
-                        deepLink: duplicate.bills.map(b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`) as any
+                        deepLink: billLinks[0]
                     };
                 });
             })

@@ -73,6 +73,14 @@ export class DuplicatePaymentRule implements IRule {
                     const clusterIds = cluster.map((c: any) => c.qbId);
                     const fingerprint = generateFingerprint([this.id, ...clusterIds]);
 
+                    // One finding = N duplicate payments. Emit every payment's
+                    // deep link in metadata (array) and promote the first one
+                    // to the scalar `deepLink` field. The pipeline/worker/UI
+                    // require a string; arrays are silently coerced to null.
+                    const clusterLinks = cluster.map(
+                        (c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`
+                    );
+
                     return {
                         id: first.qbId,
                         label: `Duplicate Payments of ${amount.toFixed(2)}`,
@@ -84,7 +92,8 @@ export class DuplicatePaymentRule implements IRule {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: clusterIds,
                             paymentMethodId: first.qboData.PaymentMethodRef?.value,
-                            currency: first.qboData.CurrencyRef?.value
+                            currency: first.qboData.CurrencyRef?.value,
+                            clusterLinks
                         },
                         entities: cluster.map((c: any) => ({
                             id: c.qbId,
@@ -92,7 +101,7 @@ export class DuplicatePaymentRule implements IRule {
                             amount,
                             date: new Date(c.qboData.TxnDate || c.date)
                         })),
-                        deepLink: cluster.map((c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`) as any
+                        deepLink: clusterLinks[0]
                     } as EnrichedFinding;
                 });
             })

@@ -78,6 +78,14 @@ export class DuplicateDepositsRule implements IRule {
                     const amount = new Prisma.Decimal(raw.TotalAmt || 0);
                     const date = raw.TxnDate || f.date;
 
+                    // One finding = N duplicate deposits. Emit every deposit's
+                    // deep link in metadata (array) and promote the first one
+                    // to the scalar `deepLink` field. The pipeline/worker/UI
+                    // require a string; arrays are silently coerced to null.
+                    const clusterLinks = cluster.map(
+                        c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`
+                    );
+
                     return {
                         id: f.qbId,
                         label: 'Duplicate Deposit',
@@ -87,7 +95,8 @@ export class DuplicateDepositsRule implements IRule {
                         metadata: {
                             clusterIds: cluster.map(c => c.qbId),
                             qbId: f.qbId,
-                            impactScore: Math.min(100, Math.round(30 * Math.min(2, amount.toNumber() / 1000)))
+                            impactScore: Math.min(100, Math.round(30 * Math.min(2, amount.toNumber() / 1000))),
+                            clusterLinks
                         },
                         entities: cluster.map(c => ({
                             id: c.qbId,
@@ -96,7 +105,7 @@ export class DuplicateDepositsRule implements IRule {
                             date: new Date(date)
                         })),
                         fingerprint: generateFingerprint([this.id, ...cluster.map(c => c.qbId)]),
-                        deepLink: cluster.map(c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`) as any
+                        deepLink: clusterLinks[0]
                     } as EnrichedFinding;
                 });
             })
