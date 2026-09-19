@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { authMiddleware, AuthRequest, clerkClient } from '../middleware/auth';
 import connectionsRouter from './connections';
 import authRouter from './auth';
@@ -12,14 +12,25 @@ import webhooksRouter from './webhooks';
 import paystackWebhookRouter from './webhooks/paystack';
 import subscriptionsRouter from './subscriptions';
 import { prisma } from '@qb-health/financial-model';
-import { deleteConnectionData } from '../services/connection-cleanup';
+import {
+    authLimiter,
+    authenticatedLimiter,
+    webhookLimiter,
+} from '../middleware/rate-limiter';
 
 const router: Router = Router();
 
-// Public routes
-router.use('/auth', authRouter);
-router.use('/webhooks/paystack', paystackWebhookRouter);
-router.use('/webhooks', webhooksRouter);
+// ─── Public routes ────────────────────────────────────────────────────────
+//
+// These run before authMiddleware, so they can't key by tenantId. Use
+// IP-keyed limiters sized for the abuse profile of each surface.
+//
+// Order matters: /webhooks/paystack must be mounted before /webhooks so the
+// more specific path matches first.
+
+router.use('/auth', authLimiter, authRouter);
+router.use('/webhooks/paystack', webhookLimiter, paystackWebhookRouter);
+router.use('/webhooks', webhookLimiter, webhooksRouter);
 
 router.get('/version', (req, res) => {
     res.json({
@@ -34,7 +45,7 @@ router.get('/launch', (req: Request, res: Response) => {
 
     if (!frontendUrl) {
         return res.status(500).send('Frontend URL is not configured');
-    };
+    }
     return res.redirect(`${frontendUrl}/dashboard`);
 });
 
@@ -49,12 +60,20 @@ router.get('/qb/disconnect-callback', (req, res) => {
     return res.redirect(`${process.env.FRONTEND_URL}/disconnect`);
 });
 
-// Protected routes
-router.use(authMiddleware);
+// ─── Protected routes ─────────────────────────────────────────────────────
+//
+// authMiddleware populates req.tenantId. The limiter runs AFTER auth so it
+// can key by tenant instead of IP (mobile users behind carrier NAT would
+// otherwise share a single bucket and lock each other out).
+//
+// Every route mounted below the limiter inherits its budget.
 
-// QuickBooks OAuth routes (Now protected to ensure JIT provisioning)
+router.use(authMiddleware);
+router.use(authenticatedLimiter);
+
+// QuickBooks OAuth routes (protected to ensure JIT provisioning)
 router.get('/qb/auth-url', (req: AuthRequest, res: Response) => {
-    const tenantId = req.tenantId; // Use verified tenantId from middleware
+    const tenantId = req.tenantId; // verified tenantId from middleware
 
     logger.info('OAuth URL requested', { tenantId });
     const state = Buffer.from(JSON.stringify({
@@ -147,6 +166,7 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
     }
 });
 
+// Sub-routers inherit the authenticated limiter applied above.
 router.use('/connections', connectionsRouter);
 router.use('/diagnostics', diagnosticsRouter);
 router.use('/reports', reportsRouter);

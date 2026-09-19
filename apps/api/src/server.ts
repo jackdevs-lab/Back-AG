@@ -3,7 +3,6 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import reportsRouter from './routes/reports';
-import rateLimit from 'express-rate-limit';
 import { logger } from '@qb-health/utils';
 import { prisma } from '@qb-health/financial-model';
 import routes from './routes';
@@ -20,12 +19,6 @@ app.use(cors({
 }));
 
 // Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP'
-});
-app.use('/api/', limiter);
 
 // Body parsing
 // Body parsing
