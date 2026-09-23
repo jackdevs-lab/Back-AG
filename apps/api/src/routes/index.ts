@@ -3,7 +3,7 @@ import { authMiddleware, AuthRequest, clerkClient } from '../middleware/auth';
 import connectionsRouter from './connections';
 import authRouter from './auth';
 import diagnosticsRouter from './diagnostics';
-import { oauthService } from '@qb-health/qb-client';
+import { oauthService, RealmAlreadyConnectedError } from '@qb-health/qb-client';
 import { logger } from '@qb-health/utils';
 import { AppError } from '../middleware/error-handler';
 import { syncQueue } from '../queue';
@@ -85,7 +85,7 @@ router.get('/qb/auth-url', (req: AuthRequest, res: Response) => {
     res.json({ success: true, authUrl });
 });
 
-router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Response, next) => {
+router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Response, next): Promise<void> => {
     try {
         const { code, realmId, state } = req.body;
         if (!code || !realmId || !state) throw new AppError('Invalid callback data', 400);
@@ -103,7 +103,7 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
 
         const tenantId = stateTenantId;
 
-        const tokenData = await oauthService.exchangeCodeForToken(code);
+        const tokenData = await oauthService.exchangeCodeForToken(code, realmId);
 
         let tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
 
@@ -143,17 +143,42 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
             }
         }
 
-        await oauthService.saveConnection(tenantId, realmId, tokenData);
+        // --- Step 3 guard: saveConnection now throws if the realm is owned by another tenant ---
+        try {
+            await oauthService.saveConnection(tenantId, realmId, tokenData);
+        } catch (saveError: any) {
+            if (saveError instanceof RealmAlreadyConnectedError) {
+                logger.warn('OAuth Callback: realm already connected to another tenant', {
+                    realmId: saveError.realmId,
+                    attemptedByTenant: tenantId,
+                    ownedByTenant: saveError.ownerTenantId,
+                    correlationHint: 'realm_already_connected'
+                });
+
+                // Return 409 so the frontend can show a specific message.
+                res.status(409).json({
+                    success: false,
+                    code: 'REALM_ALREADY_CONNECTED',
+                    message:
+                        'This QuickBooks company is already connected to another account. ' +
+                        'If you believe this is an error, please contact support.',
+                    realmId: saveError.realmId
+                });
+                return;
+            }
+            // Any other save error bubbles to the generic handler below.
+            throw saveError;
+        }
 
         const isBypassedTenant = tenant?.isBypassed || tenant?.email === 'intuit-review@auditorgen.com';
         if (isBypassedTenant) {
             await prisma.qbConnection.updateMany({
-                where: { tenantId, realmId },
+                where: { realmId },
                 data: { subscriptionStatus: 'ACTIVE' }
             });
         }
 
-        // 5. Trigger initial sync
+        // Trigger initial sync only after the connection is committed.
         await syncQueue.add('trigger-sync', { realmId, tenantId, type: 'initial' });
 
         res.json({
@@ -161,11 +186,11 @@ router.post('/connections/quickbooks/callback', async (req: AuthRequest, res: Re
             message: 'Connected',
             redirectUrl: `${process.env.FRONTEND_URL}/connections/success?realmId=${realmId}`
         });
+        return;
     } catch (error) {
         next(error);
     }
 });
-
 // Sub-routers inherit the authenticated limiter applied above.
 router.use('/connections', connectionsRouter);
 router.use('/diagnostics', diagnosticsRouter);

@@ -76,7 +76,7 @@ model QbConnection {
   lastSyncMessage          String?            @db.Text
   lastHeartbeatAt          DateTime?
 
-  @@unique([tenantId, realmId])
+  @@unique([realmId])
   @@index([realmId])
   @@index([subscriptionStatus])
   @@index([currentPeriodEnd])

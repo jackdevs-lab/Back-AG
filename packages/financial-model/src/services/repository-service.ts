@@ -100,12 +100,7 @@ export class PrismaBrandedRepository implements BrandedRepository {
         lastSyncAt?: Date
     ): Promise<QbConnection> {
         return this.prismaClient.qbConnection.update({
-            where: {
-                tenantId_realmId: {
-                    tenantId: tenantId,
-                    realmId: realmId as string
-                }
-            },
+            where: { realmId: realmId as string },
             data: {
                 syncStatus: status as SyncStatus,
                 ...(lastSyncAt !== undefined && { lastSyncAt }),
@@ -115,12 +110,7 @@ export class PrismaBrandedRepository implements BrandedRepository {
 
     async findQbConnectionByRealmId(tenantId: string, realmId: RealmId): Promise<QbConnection | null> {
         const result = await this.prismaClient.qbConnection.findUnique({
-            where: {
-                tenantId_realmId: {
-                    tenantId: tenantId,
-                    realmId: realmId as string
-                }
-            },
+            where: { realmId: realmId as string },
         });
         return result as unknown as QbConnection | null;
     }

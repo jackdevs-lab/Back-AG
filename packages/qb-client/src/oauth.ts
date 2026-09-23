@@ -9,6 +9,12 @@ export interface QbTokenResponse {
     x_refresh_token_expires_in: number;
     realmId?: string;
 }
+export class RealmAlreadyConnectedError extends Error {
+    constructor(public readonly realmId: string, public readonly ownerTenantId: string) {
+        super(`Realm ${realmId} is already connected to tenant ${ownerTenantId}`);
+        this.name = 'RealmAlreadyConnectedError';
+    }
+}
 
 export class OAuthService {
     private refreshPromises: Map<string, Promise<string>> = new Map();
@@ -89,10 +95,12 @@ export class OAuthService {
         return response.data;
     }
 
+
+
     async saveConnection(tenantId: string, realmId: string, tokenData: QbTokenResponse): Promise<void> {
         const encryptedAccessToken = encrypt(tokenData.access_token);
         const encryptedRefreshToken = encrypt(tokenData.refresh_token);
-        const tokenExpiry = new Date(Date.now() + (tokenData.expires_in * 1000));
+        const tokenExpiry = new Date(Date.now() + tokenData.expires_in * 1000);
 
         const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
         const defaultSubscriptionStatus = 'ACTIVE';
@@ -100,32 +108,55 @@ export class OAuthService {
         logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
 
         try {
-            await prisma.qbConnection.upsert({
-                where: {
-                    tenantId_realmId: { tenantId, realmId }
-                },
-                update: {
-                    accessToken: encryptedAccessToken,
-                    refreshToken: encryptedRefreshToken,
-                    tokenExpiry,
-                    isActive: true,
-                },
-                create: {
-                    tenantId,
-                    realmId,
-                    accessToken: encryptedAccessToken,
-                    refreshToken: encryptedRefreshToken,
-                    tokenExpiry,
-                    isActive: true,
-                    syncStatus: 'IDLE',
-                    subscriptionStatus: defaultSubscriptionStatus
-                }
+            const existing = await prisma.qbConnection.findUnique({
+                where: { realmId },
+                select: { tenantId: true },
             });
-        } catch (error) {
+
+            if (existing && existing.tenantId !== tenantId) {
+                throw new RealmAlreadyConnectedError(realmId, existing.tenantId);
+            }
+
+            if (existing) {
+                // Same tenant re-authorizing (e.g. token refresh flow) — update tokens.
+                await prisma.qbConnection.update({
+                    where: { realmId },
+                    data: {
+                        accessToken: encryptedAccessToken,
+                        refreshToken: encryptedRefreshToken,
+                        tokenExpiry,
+                        isActive: true,
+                    },
+                });
+            } else {
+                await prisma.qbConnection.create({
+                    data: {
+                        tenantId,
+                        realmId,
+                        accessToken: encryptedAccessToken,
+                        refreshToken: encryptedRefreshToken,
+                        tokenExpiry,
+                        isActive: true,
+                        syncStatus: 'IDLE',
+                        subscriptionStatus: defaultSubscriptionStatus,
+                    },
+                });
+            }
+        } catch (error: any) {
+            // Race condition: another request created the row between findUnique and create.
+            // The DB unique(realmId) catches it; convert to the friendly error.
+            if (error?.code === 'P2002') {
+                const owner = await prisma.qbConnection.findUnique({
+                    where: { realmId },
+                    select: { tenantId: true },
+                });
+                throw new RealmAlreadyConnectedError(realmId, owner?.tenantId ?? 'unknown');
+            }
+
             logger.error('Failed to save connection to database', {
                 tenantId,
                 realmId,
-                error: error instanceof Error ? error.message : error
+                error: error instanceof Error ? error.message : error,
             });
             throw error;
         }
@@ -133,24 +164,24 @@ export class OAuthService {
         logger.info('QuickBooks connection saved', { tenantId, realmId });
     }
 
-    async getConnection(realmId: string, tenantId: string) {
+    async getConnection(realmId: string, tenantId?: string) {
         const connection = await prisma.qbConnection.findUnique({
-            where: {
-                tenantId_realmId: {
-                    tenantId,
-                    realmId
-                }
-            }
+            where: { realmId },
         });
 
         if (!connection) {
             throw new Error(`No connection found for realm ${realmId}`);
         }
 
+        if (tenantId && connection.tenantId !== tenantId) {
+            // Caller assumed a tenant that doesn't own this realm.
+            throw new RealmAlreadyConnectedError(realmId, connection.tenantId);
+        }
+
         return {
             ...connection,
             accessToken: decrypt(connection.accessToken),
-            refreshToken: decrypt(connection.refreshToken)
+            refreshToken: decrypt(connection.refreshToken),
         };
     }
 

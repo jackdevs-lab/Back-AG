@@ -36,7 +36,7 @@ export async function syncProcessor(job: Job<SyncJobData>): Promise<SyncProcesso
 
     if (!connectionId && tenantId && realmId) {
         const conn = await prisma.qbConnection.findUnique({
-            where: { tenantId_realmId: { tenantId, realmId } },
+            where: { realmId },
             select: { id: true }
         });
         if (conn) connectionId = conn.id;

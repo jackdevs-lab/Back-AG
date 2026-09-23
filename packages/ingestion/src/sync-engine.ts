@@ -50,12 +50,7 @@ export class SyncEngine {
         const entitiesForCdc = ['Account', 'Customer', 'Vendor', 'Invoice', 'Bill', 'Payment', 'Purchase', 'JournalEntry'];
 
         const connection = await prisma.qbConnection.findUnique({
-            where: {
-                tenantId_realmId: {
-                    tenantId: String(this.tenantId),
-                    realmId: String(this.realmId)
-                }
-            },
+            where: { realmId: String(this.realmId) },
             select: { lastSyncAt: true },
         });
 

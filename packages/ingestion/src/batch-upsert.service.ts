@@ -17,14 +17,24 @@ export interface ExtendedBatchUpsertOptions extends BatchUpsertOptions {
 }
 
 // Table-specific unique constraint mapping based on schema.prisma
+// Table-specific unique constraint mapping based on schema.prisma
 const TABLE_CONFLICT_TARGETS: Record<string, string[]> = {
+    // Composite-keyed tables (unchanged)
     RuleFinding: ['tenantId', 'realmId', 'ruleId', 'qbId'],
     RuleConfig: ['tenantId', 'realmId', 'ruleId'],
     QbSyncState: ['realmId', 'entityType'],
-    QbConnection: ['tenantId', 'realmId'],
+    QbConnection: ['realmId'],           // was ['tenantId', 'realmId'] — schema is now @@unique([realmId])
     User: ['tenantId', 'email'],
-    // Default target for Account, Transaction, Customer, Vendor, BankTransaction, Reconciliation
-    DEFAULT: ['tenantId', 'realmId', 'qbId']
+
+    // Entity tables — id is the primary key (realmId-qbId) and is what actually conflicts
+    Transaction: ['id'],
+    Account: ['id'],
+    Customer: ['id'],
+    Vendor: ['id'],
+    BankTransaction: ['id'],
+    Reconciliation: ['id'],
+
+    DEFAULT: ['id'],
 };
 
 export class BatchUpsertService {
