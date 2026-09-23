@@ -16,8 +16,18 @@ export const prisma = global.prisma || new PrismaClient({
 });
 
 // @ts-ignore
+// @ts-ignore
 prisma.$on('error', (e: any) => {
-    logger.error('Prisma Error:', e.message || e);
+    const err = e instanceof Error
+        ? e
+        : Object.assign(new Error(String(e?.message ?? e)), {
+            code: e?.code,
+            name: e?.name,
+        });
+    logger.error('Prisma Error:', err, {
+        code: e?.code,
+        name: e?.name,
+    });
 });
 
 // @ts-ignore

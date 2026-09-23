@@ -14,12 +14,16 @@ const transport = process.env.NODE_ENV === 'development' && process.stdout.isTTY
 
 export const baseLogger = pino({
     level: process.env.LOG_LEVEL || 'info',
+    formatters: {
+        level: (label) => {
+            return { level: label, severity: label };
+        },
+    },
     base: {
         service: 'qb-health-monitor',
         env: process.env.NODE_ENV
     }
 }, transport);
-
 export interface LogContext {
     tenantId?: string;
     realmId?: string;
