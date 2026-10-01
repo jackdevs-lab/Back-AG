@@ -83,8 +83,7 @@ export const authMiddleware = async (
 
     // Phase 3: Tenant Provisioning & Synchronization
     try {
-        const allowedReviewerEmail = process.env.AUDITOR_BYPASS_EMAIL || 'intuit-review@auditorgen.com';
-        const isReviewer = email.toLowerCase() === allowedReviewerEmail.toLowerCase();
+
 
         // 1. Check if tenant exists by ID
         let tenant = await prisma.tenant.findUnique({
@@ -106,7 +105,6 @@ export const authMiddleware = async (
                     id: derivedTenantId,
                     name,
                     email: safeEmail,
-                    isBypassed: isReviewer
                 }
             });
         } else if (tenant.email !== email && !tenant.email.includes('_')) {
