@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, AuthRequest, clerkClient } from '../middleware/auth';
 import connectionsRouter from './connections';
-import authRouter from './auth';
 import diagnosticsRouter from './diagnostics';
 import { oauthService, RealmAlreadyConnectedError } from '@qb-health/qb-client';
 import { logger } from '@qb-health/utils';
@@ -13,7 +12,6 @@ import paystackWebhookRouter from './webhooks/paystack';
 import subscriptionsRouter from './subscriptions';
 import { prisma } from '@qb-health/financial-model';
 import {
-    authLimiter,
     authenticatedLimiter,
     webhookLimiter,
 } from '../middleware/rate-limiter';
@@ -28,7 +26,6 @@ const router: Router = Router();
 // Order matters: /webhooks/paystack must be mounted before /webhooks so the
 // more specific path matches first.
 
-router.use('/auth', authLimiter, authRouter);
 router.use('/webhooks/paystack', webhookLimiter, paystackWebhookRouter);
 router.use('/webhooks', webhookLimiter, webhooksRouter);
 

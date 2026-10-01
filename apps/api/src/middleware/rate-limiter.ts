@@ -24,18 +24,7 @@ export const authenticatedLimiter = rateLimit({
     message: { error: 'Too many requests. Please wait a moment and try again.' },
 });
 
-/**
- * Public auth endpoints (sign-in, OAuth URL mint, callback).
- * Tight, IP-keyed — these are the primary target for abuse and run before
- * the user is known.
- */
-export const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many authentication attempts. Try again later.' },
-});
+
 
 /**
  * Webhook receivers. Providers retry aggressively on non-2xx, so the budget
