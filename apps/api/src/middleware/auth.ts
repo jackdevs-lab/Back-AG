@@ -26,13 +26,11 @@ export const authMiddleware = async (
     }
 
     const authHeader = req.headers.authorization;
-    const queryToken = req.query.token as string | undefined;
     const tenantIdHeader = req.headers['x-tenant-id'] as string;
 
-    // Fallback to query param token for EventSource / SSE connections
     const token = authHeader?.startsWith('Bearer ')
-        ? authHeader.split(' ')[1]
-        : queryToken;
+        ? authHeader.slice(7)
+        : undefined;
 
     if (!token || token === 'null' || token === 'undefined') {
         console.warn(`[AUTH 401] Instance: ${instanceId}, Reason: MISSING_TOKEN, Path: ${req.path}, Tenant: ${tenantIdHeader}`);
