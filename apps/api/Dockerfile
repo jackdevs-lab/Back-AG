@@ -10,7 +10,6 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 
 RUN pnpm db:generate
-RUN pnpm --filter @qb-health/api... build
-EXPOSE 3000
+RUN pnpm --filter @qb-health/worker... build
 
-CMD ["pnpm", "--filter", "@qb-health/api", "start"]
+CMD ["pnpm", "--filter", "@qb-health/worker", "start"]
