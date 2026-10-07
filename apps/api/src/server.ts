@@ -20,19 +20,15 @@ const ALLOWED_ORIGINS = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow server-to-server / curl / health checks (no Origin header)
         if (!origin) return callback(null, true);
-
-        if (ALLOWED_ORIGINS.includes(origin)) {
-            return callback(null, true);
-        }
-
+        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
         logger.warn('CORS blocked origin', { origin, allowed: ALLOWED_ORIGINS });
         return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    exposedHeaders: ['x-tenant-id'],
     optionsSuccessStatus: 200,
 }));
 
