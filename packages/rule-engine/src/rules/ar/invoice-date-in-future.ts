@@ -6,6 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch, fetchCustomersByQbIds 
 import { formatStandardReport } from '../../core/shared/report-utils';
 import { generateFingerprint } from '../../core/shared/utils';
 import { safeDecimal, safeDate } from '../../core/shared/base-schemas';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 const InvoiceRawSchema = z.object({
     TotalAmt: safeDecimal.optional(),
@@ -99,7 +100,7 @@ export class InvoiceDateInFutureRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${customerMap.get(f.metadata.customerId) || 'Unknown Customer'} - Invoice ${f.metadata.qbId}`,
                     details: `Invoice amount is $${f.amount.toFixed(2)} with a future date of ${f.date.toISOString().split('T')[0]}.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${ctx.realmId}&txnId=${f.metadata.qbId}`
+                    deepLink: buildQboDeepLink('invoice', ctx.realmId, f.metadata.qbId)
                 }));
 
                 const reportString = formatStandardReport({

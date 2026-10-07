@@ -7,6 +7,7 @@ import { transactionGenerator, fetchRuleConfig, normalizeTransactionBatch } from
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/bill-without-vendor';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type RawBatch = any[];
 type NormalizedBill = any & { qboData: z.infer<typeof BillRawSchema> };
@@ -81,7 +82,7 @@ export class BillWithoutVendorRule implements IRule {
                             currency: f.qboData?.CurrencyRef?.value || 'USD',
                             date: f.date
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('bill', realmId, f.qbId)
                     };
                 });
             })

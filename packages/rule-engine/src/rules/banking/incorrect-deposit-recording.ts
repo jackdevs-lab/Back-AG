@@ -5,6 +5,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { DepositRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/incorrect-deposits-recording';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: any })[];
@@ -67,7 +68,7 @@ export class IncorrectDepositRecordingRule implements IRule {
                         impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
                         metadata: { qbId: d.qbId },
                         entities: [{ id: d.qbId, type: 'Deposit', amount, date: new Date(date) }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${d.qbId}`
+                        deepLink: buildQboDeepLink('deposit', realmId, d.qbId)
                     };
                 });
             })

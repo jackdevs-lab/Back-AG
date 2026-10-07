@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { Prisma } from '@qb-health/financial-model';
 
 import { formatSummary } from '../../core/report/duplicate-deposits';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type DepositRaw = z.infer<typeof DepositRawSchema>;
 
@@ -83,7 +84,7 @@ export class DuplicateDepositsRule implements IRule {
                     // to the scalar `deepLink` field. The pipeline/worker/UI
                     // require a string; arrays are silently coerced to null.
                     const clusterLinks = cluster.map(
-                        c => `https://sandbox.qbo.intuit.com/app/deposit?realmId=${realmId}&txnId=${c.qbId}`
+                        c => buildQboDeepLink('deposit', realmId, c.qbId)
                     );
 
                     return {

@@ -7,6 +7,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-bill-payment';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 export class DuplicateBillPaymentsRule implements IRule {
     public id: RuleId = 'DUPLICATE_BILL_PAYMENTS' as unknown as RuleId;
@@ -78,7 +79,9 @@ export class DuplicateBillPaymentsRule implements IRule {
                         },
                         entities: f.clusterItems,
                         fingerprint: generateFingerprint([this.id, f.qbId]),
-                        deepLink: f.clusterItems.map((entity: any) => `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${entity.qbId}`).join(', ')
+                        deepLink: f.clusterItems.map((entity: any) =>
+                            buildQboDeepLink('billpayment', realmId, entity.qbId)
+                        ).join(', ')
                     };
 
                     return finding;

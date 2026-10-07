@@ -6,6 +6,7 @@ import { fetchRuleConfig, transactionGenerator, normalizeTransactionBatch, fetch
 import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { formatSummary } from '../../core/report/orphaned-bill-payment';
 import { z } from 'zod';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type RawTx = {
     id: string;
@@ -133,7 +134,7 @@ export class OrphanedBillPaymentRule implements IRule {
                             currency,
                             date: new Date(f.date)
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('billpayment', realmId, f.qbId)
                     };
                 });
             })

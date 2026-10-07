@@ -6,6 +6,7 @@ import { VendorCreditRawSchema, EnrichedFinding } from '../../core/shared/base-s
 import { generateFingerprint } from '../../core/shared/utils';
 import { RuleContext, IRule, RuleExecutionResult, RuleId } from '../../types';
 import { formatSummary } from '../../core/report/vendor-credits-not-applied';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 export class VendorCreditsNotAppliedRule implements IRule {
     id: RuleId = 'VENDOR_CREDIT_NOT_APPLIED' as unknown as RuleId;
@@ -72,7 +73,7 @@ export class VendorCreditsNotAppliedRule implements IRule {
                             currency: f.qboData.CurrencyRef?.value || 'USD',
                             date: f.date
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/vendorcredit?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('vendorcredit', realmId, f.qbId)
                     };
                 });
 

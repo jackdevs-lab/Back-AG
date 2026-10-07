@@ -7,6 +7,7 @@ import { formatSummary } from '../../core/report/bill-date-in-future';
 import { normalizeTransactionBatch, transactionGenerator } from '../../core/shared/data-primitives';
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 export class BillDateInFutureRule implements IRule {
     id: RuleId = 'BILL_DATE_IN_FUTURE' as unknown as RuleId;
@@ -37,7 +38,7 @@ export class BillDateInFutureRule implements IRule {
                     amount: f.amount,
                     currency: f.qboData?.CurrencyRef?.name || 'USD',
                     fingerprint: generateFingerprint([this.id, f.qbId]),
-                    deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
+                    deepLink: buildQboDeepLink('bill', realmId, f.qbId)
                 }));
             })
 

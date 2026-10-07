@@ -5,6 +5,7 @@ import { PaymentRawSchema } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unapplied-payments';
 import { z } from 'zod';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -71,7 +72,7 @@ export class UnappliedPaymentsRule implements IRule {
                         date: new Date(date),
                         amount,
                         currency: raw.CurrencyRef?.value || 'USD',
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`,
+                        deepLink: buildQboDeepLink('recvpayment', realmId, pay.qbId),
                         fingerprint: generateFingerprint([this.id, pay.qbId]),
                         impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
                         metadata: {

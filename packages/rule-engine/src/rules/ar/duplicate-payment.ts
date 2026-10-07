@@ -5,6 +5,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-payment';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: import('zod').infer<typeof PaymentRawSchema> })[];
@@ -78,7 +79,7 @@ export class DuplicatePaymentRule implements IRule {
                     // to the scalar `deepLink` field. The pipeline/worker/UI
                     // require a string; arrays are silently coerced to null.
                     const clusterLinks = cluster.map(
-                        (c: any) => `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${c.qbId}`
+                        (c: any) => buildQboDeepLink('recvpayment', realmId, c.qbId)
                     );
 
                     return {

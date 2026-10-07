@@ -7,6 +7,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-vendor-bills';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type RawBatchItem = {
     id: string;
@@ -106,7 +107,7 @@ export class DuplicateVendorBillsRule implements IRule {
                     // `deepLink` field so the pipeline/worker/UI can render
                     // a clickable primary link today.
                     const billLinks = duplicate.bills.map(
-                        b => `https://sandbox.qbo.intuit.com/app/bill?txnId=${b.qbId}&realmId=${realmId}`
+                        b => buildQboDeepLink('bill', realmId, b.qbId)
                     );
 
                     return {

@@ -5,6 +5,7 @@ import { InvoiceRawSchema, EnrichedFinding } from '../../core/shared/base-schema
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-invoices';
 import { z } from 'zod';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof InvoiceRawSchema> })[];
@@ -77,8 +78,9 @@ export class DuplicateInvoicesRule implements IRule {
                         amount,
                         currency: first.qboData.CurrencyRef?.value || 'USD',
                         date: new Date(first.qboData.TxnDate || first.date),
-                        deepLink: `https://sandbox.qbo.intuit.com/app/invoice?realmId=${realmId}&txnId=${cluster.map(c => c.qbId).join(',')}`,
-                        metadata: {
+                        deepLink: cluster.map(c =>
+                            buildQboDeepLink('invoice', realmId, c.qbId)
+                        ).join(','), metadata: {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: cluster.map(c => c.qbId)
                         },

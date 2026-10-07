@@ -5,6 +5,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { CreditMemoRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unapplied-credit-memos';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: any })[];
@@ -81,7 +82,7 @@ export class UnappliedCreditMemosRule implements IRule {
                             unappliedAmount: balance,
                             date: new Date(date)
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/creditmemo?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('creditmemo', realmId, f.qbId)
                     } as unknown as EnrichedFinding & { fingerprint: string; impactScore: number };
                 });
             })
