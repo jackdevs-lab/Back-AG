@@ -13,14 +13,30 @@ const app: Express = express();
 const PORT = process.env.PORT || 3001;
 app.set('trust proxy', 1);
 app.use(helmet());
+const ALLOWED_ORIGINS = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? 'http://localhost:3000')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    credentials: true
+    origin: (origin, callback) => {
+        // Allow server-to-server / curl / health checks (no Origin header)
+        if (!origin) return callback(null, true);
+
+        if (ALLOWED_ORIGINS.includes(origin)) {
+            return callback(null, true);
+        }
+
+        logger.warn('CORS blocked origin', { origin, allowed: ALLOWED_ORIGINS });
+        return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200,
 }));
 
-// Rate limiting
 
-// Body parsing
 // Body parsing
 app.use((req, res, next) => {
     // Skip the global JSON parser for webhook routes so express.raw() can handle them later
