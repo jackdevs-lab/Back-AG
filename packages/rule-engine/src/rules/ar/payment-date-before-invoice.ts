@@ -6,6 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch, fetchTransactionsByQbI
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/payment-date-before-invoice';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema>, invoiceDates: Map<string, Date> })[];
@@ -142,7 +143,7 @@ export class PaymentDateBeforeInvoiceRule implements IRule {
                             paymentDate: new Date(payDate),
                             invoiceDate: invoiceDate
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${pay.qbId}`
+                        deepLink: buildQboDeepLink('recvpayment', realmId, pay.qbId)
                     };
                 });
             })

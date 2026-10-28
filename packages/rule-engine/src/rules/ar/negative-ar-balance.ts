@@ -7,6 +7,7 @@ import { fetchCustomers } from '../../core/shared/data-primitives';
 import { formatStandardReport } from '../../core/shared/report-utils';
 import { generateFingerprint } from '../../core/shared/utils';
 import { safeDecimal } from '../../core/shared/base-schemas';
+import { buildQboNameDeepLink } from '../../core/shared/deeplink';
 
 const CustomerRawSchema = z.object({
     qbId: z.string(),
@@ -92,7 +93,7 @@ export class NegativeARBalanceRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.name} - $${f.metadata.balance.toFixed(2)}`,
                     details: `Customer has a negative AR balance of $${f.metadata.balance.toFixed(2)}. This usually indicates unapplied payments, overpayments, or missing invoices.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
+                    deepLink: buildQboNameDeepLink(ctx.realmId, f.metadata.qbId)
                 }));
 
                 const reportString = formatStandardReport({

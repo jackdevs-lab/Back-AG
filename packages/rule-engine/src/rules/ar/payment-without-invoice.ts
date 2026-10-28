@@ -6,6 +6,7 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { formatSummary } from '../../core/report/payment-without-invoice';
 import { z } from 'zod';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -84,7 +85,7 @@ export class PaymentWithoutInvoiceRule implements IRule {
                             amount,
                             date: new Date(date)
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId)
                     };
                 });
             })

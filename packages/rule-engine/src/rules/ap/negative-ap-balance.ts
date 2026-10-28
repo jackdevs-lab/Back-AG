@@ -6,6 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch, fetchRuleConfig } from
 import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/negative-ap-balance';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBill = any & { qboData: z.infer<typeof BillRawSchema> };
 type NormalizationOutput = { normalized: NormalizedBill[]; unscannable: any[] };
@@ -80,7 +81,7 @@ export class NegativeApBalanceRule implements IRule {
                                 balance: amount
                             }
                         ],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('bill', realmId, f.qbId)
                     };
                 });
             })

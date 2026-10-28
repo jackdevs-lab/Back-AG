@@ -6,6 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/orphaned-payments';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -84,7 +85,7 @@ export class OrphanedPaymentRule implements IRule {
                         date: new Date(date),
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`,
+                        deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId),
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             qbId: f.qbId,

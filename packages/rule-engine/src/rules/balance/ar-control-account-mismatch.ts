@@ -6,6 +6,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { JournalEntryRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/ar-control-account-mismatch';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type RawDataBatch = any[];
 type NormalizedData = { normalized: z.infer<typeof JournalEntryRawSchema>[]; unscannable: any[] };
@@ -74,7 +75,7 @@ export class ArControlAccountMismatchRule implements IRule {
                         // Entities — without this, entityCount is 0 in the UI
                         entities: [{ id: f.qbId }],
                         // Deep link — journal entries live at /app/journal in QBO
-                        deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink('journal', ctx.realmId, f.qbId)
                     };
                 });
             })

@@ -11,6 +11,7 @@ RUN pnpm install --frozen-lockfile
 
 RUN pnpm db:generate
 RUN pnpm --filter @qb-health/api... build
+
 EXPOSE 3000
 
 CMD ["pnpm", "--filter", "@qb-health/api", "start"]

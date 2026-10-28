@@ -6,6 +6,7 @@ import { BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-sc
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/bill-payment-without-bill';
 import { z } from 'zod';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof BillPaymentRawSchema> })[];
@@ -93,7 +94,7 @@ export class BillPaymentWithoutBillRule implements IRule {
                                 scoreContribution: impactScore
                             }
                         }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.qbId || f.id}`
+                        deepLink: buildQboDeepLink('billpayment', realmId, f.qbId || f.id)
                     };
                 });
             })

@@ -8,6 +8,7 @@ import { JournalEntryRawSchema, EnrichedFinding } from '../../core/shared/base-s
 import { generateFingerprint } from '../../core/shared/utils';
 import { isMismatch } from '../../core/detect/ap-control-account-mismatch';
 import { formatSummary } from '../../core/report/ap-control-account-mismatch';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type JournalEntryRaw = z.infer<typeof JournalEntryRawSchema>;
 type TransactionBatchItem = { qbId: string; date: Date; amount: Prisma.Decimal; rawData: any };
@@ -90,7 +91,7 @@ export class ApControlAccountMismatchRule implements IRule {
                         impactScore: calculateImpactScore(f.variance.toNumber())
                     },
                     entities: [{ id: f.qbId }],
-                    deepLink: `https://sandbox.qbo.intuit.com/app/journal?realmId=${realmId}&txnId=${f.qbId}`
+                    deepLink: buildQboDeepLink('journal', ctx.realmId, f.qbId)
                 }));
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {

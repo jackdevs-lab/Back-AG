@@ -6,6 +6,7 @@ import { fetchCustomers, fetchTransactions } from '../../core/shared/data-primit
 import { formatStandardReport } from '../../core/shared/report-utils';
 import { generateFingerprint } from '../../core/shared/utils';
 import { safeDecimal } from '../../core/shared/base-schemas';
+import { buildQboNameDeepLink } from '../../core/shared/deeplink';
 
 const CustomerRawSchema = z.object({
     qbId: z.string(),
@@ -110,7 +111,7 @@ export class CustomerCreditNoInvoicesRule implements IRule {
                     id: f.metadata.qbId,
                     label: `${f.metadata.name} - $${Math.abs(f.metadata.balance).toFixed(2)}`,
                     details: `Customer has a credit balance of $${Math.abs(f.metadata.balance).toFixed(2)} but has never been invoiced.`,
-                    deepLink: `https://sandbox.qbo.intuit.com/app/customerdetail?realmId=${ctx.realmId}&nameId=${f.metadata.qbId}`
+                    deepLink: buildQboNameDeepLink(ctx.realmId, f.metadata.qbId)
                 }));
 
                 const reportString = formatStandardReport({

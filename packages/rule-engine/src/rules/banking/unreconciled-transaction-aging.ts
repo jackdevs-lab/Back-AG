@@ -7,6 +7,7 @@ import { safeDecimal, safeDate, EnrichedFinding } from '../../core/shared/base-s
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unreconciled-transaction-aging';
 import Decimal from 'decimal.js';
+import { buildQboDeepLink, QboDeepLinkEntity } from '../../core/shared/deeplink';
 
 const TxnRawSchema = z.object({
     TotalAmt: safeDecimal.optional(),
@@ -48,7 +49,20 @@ type FinalEnrichedFinding = EnrichedFinding & {
     impactScore: number;
     type?: string;
 };
-
+const QBO_ROUTE_MAP: Record<string, QboDeepLinkEntity> = {
+    journalentry: 'journal',
+    journal: 'journal',
+    check: 'check',         // ← see note
+    deposit: 'deposit',
+    transfer: 'transfer',
+    bill: 'bill',
+    invoice: 'invoice',
+    payment: 'recvpayment',
+    purchase: 'expense',
+    vendorcredit: 'vendorcredit',
+    creditmemo: 'creditmemo',
+    billpayment: 'billpayment'
+};
 const AGING_THRESHOLD_DAYS = 60;
 const UNRECONCILED_TYPES = ['Check', 'Deposit', 'Transfer', 'JournalEntry'];
 
@@ -104,8 +118,8 @@ export class UnreconciledTransactionAgingRule implements IRule {
                     const daysOld = Math.floor((Date.now() - parsedDate.getTime()) / 86400000);
                     const txnType = f.type || raw.TxnType || raw.type || 'Transaction';
 
-                    let route = txnType.toLowerCase();
-                    if (route === 'journalentry') route = 'journal';
+                    const route: QboDeepLinkEntity = QBO_ROUTE_MAP[txnType.toLowerCase()] ?? 'txndetail';
+
 
                     return {
                         id: f.qbId,
@@ -122,7 +136,7 @@ export class UnreconciledTransactionAgingRule implements IRule {
                             txnType: txnType
                         },
                         entities: [{ id: f.qbId, type: txnType, amount, date: parsedDate }],
-                        deepLink: `https://sandbox.qbo.intuit.com/app/${route}?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink(route, ctx.realmId, f.qbId),
                     };
                 });
             })

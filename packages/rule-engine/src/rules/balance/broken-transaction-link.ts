@@ -11,6 +11,7 @@ import {
 import { generateFingerprint } from '../../core/shared/utils';
 import { z } from 'zod';
 import { formatSummary } from '../../core/report/broken-transaction-link';
+import { buildQboDeepLink, QboDeepLinkEntity } from '../../core/shared/deeplink';
 
 const CombinedTxnSchema = z.union([
     BillRawSchema,
@@ -21,7 +22,7 @@ const CombinedTxnSchema = z.union([
 
 // Same map that formatReport uses — kept in sync deliberately so the
 // in-app deep link and the PDF report link point to the same place.
-const QBO_ROUTE_MAP: Record<string, string> = {
+const QBO_ROUTE_MAP: Record<string, QboDeepLinkEntity> = {
     invoice: 'invoice',
     bill: 'bill',
     payment: 'recvpayment',
@@ -76,9 +77,10 @@ export class BrokenTransactionLinkRule implements IRule {
             .withEnrichment((detections: any): EnrichedFinding[] => {
                 return detections.findings.map((f: any) => {
                     const sourceType = f.source.rawData?.TxnType || f.source.type || 'Transaction';
-                    const routePath = QBO_ROUTE_MAP[sourceType.toLowerCase()] || sourceType.toLowerCase();
+                    const routePath: QboDeepLinkEntity =
+                        QBO_ROUTE_MAP[sourceType.toLowerCase()] ?? 'txndetail';
                     const deepLink = sourceType
-                        ? `https://sandbox.qbo.intuit.com/app/${routePath}?realmId=${realmId}&txnId=${f.source.qbId}`
+                        ? buildQboDeepLink(routePath, realmId, f.source.qbId)
                         : undefined;
 
                     return {

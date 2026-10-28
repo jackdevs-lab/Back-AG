@@ -4,6 +4,7 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/undeposited-funds-aging';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 export class UndepositedFundsAgingRule implements IRule {
     id: RuleId = 'UNDEPOSITED_FUNDS_AGING' as unknown as RuleId;
@@ -79,7 +80,7 @@ export class UndepositedFundsAgingRule implements IRule {
                             { id: f.qbId, type: f.type, amount: f.amount }
                         ],
                         fingerprint: generateFingerprint([this.id, f.qbId]),
-                        deepLink: `https://sandbox.qbo.intuit.com/app/${route}?realmId=${realmId}&txnId=${f.qbId}`
+                        deepLink: buildQboDeepLink(route, realmId, f.qbId)
                     };
                 });
 

@@ -6,6 +6,7 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/over-applied-payments';
 import { z } from 'zod';
 import { Prisma } from '@qb-health/financial-model';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type PaymentRaw = z.infer<typeof PaymentRawSchema>;
 
@@ -85,7 +86,7 @@ export class OverAppliedPaymentRule implements IRule {
                         date: date,
                         amount: amount,
                         currency: raw.CurrencyRef?.value || 'USD',
-                        deepLink: `https://sandbox.qbo.intuit.com/app/recvpayment?realmId=${realmId}&txnId=${f.qbId}`,
+                        deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId),
                         fingerprint,
                         impactScore,
                         metadata: {

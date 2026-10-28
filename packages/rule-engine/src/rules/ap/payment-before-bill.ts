@@ -7,6 +7,7 @@ import { formatSummary } from '../../core/report/payment-before-bill';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
 import { BillRawSchema, BillPaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
+import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 export class PaymentBeforeBillRule implements IRule {
     id: RuleId = 'PAYMENT_BEFORE_BILL' as unknown as RuleId;
@@ -104,9 +105,9 @@ export class PaymentBeforeBillRule implements IRule {
                         },
                         entities: [f.payment, f.bill],
                         deepLink: [
-                            `https://sandbox.qbo.intuit.com/app/billpayment?realmId=${realmId}&txnId=${f.payment.qbId}`,
-                            `https://sandbox.qbo.intuit.com/app/bill?realmId=${realmId}&txnId=${f.bill.qbId}`
-                        ] as any
+                            buildQboDeepLink('billpayment', realmId, f.payment.qbId),
+                            buildQboDeepLink('bill', realmId, f.bill.qbId)
+                        ].join(', ')
                     };
                 });
             })

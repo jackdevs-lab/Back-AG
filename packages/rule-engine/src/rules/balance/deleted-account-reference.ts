@@ -2,6 +2,7 @@
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
+import { buildQboDeepLink, QboDeepLinkEntity } from '../../core/shared/deeplink';
 
 import { transactionGenerator, normalizeTransactionBatch, fetchAccounts } from '../../core/shared/data-primitives';
 import {
@@ -115,16 +116,17 @@ export class DeletedAccountReferenceRule implements IRule {
             })
             .withEnrichment((det: DetectionPayload, ctx: RuleContext): EnrichedFinding[] => {
                 return det.findings.map((f: any): EnrichedFinding => {
-                    let qboPath = 'txndetail';
+                    let qboPath: QboDeepLinkEntity = 'journal';
                     switch (f.txn.type?.toLowerCase()) {
                         case 'journalentry': qboPath = 'journal'; break;
                         case 'bill': qboPath = 'bill'; break;
                         case 'deposit': qboPath = 'deposit'; break;
-                        case 'purchase': qboPath = 'expense'; break;
+                        case 'purchase': qboPath = 'purchase'; break;   // ← see note below
                         case 'invoice': qboPath = 'invoice'; break;
                         case 'payment': qboPath = 'recvpayment'; break;
                         case 'vendorcredit': qboPath = 'vendorcredit'; break;
                     }
+
 
                     return {
                         id: f.txn.qbId,
@@ -132,7 +134,7 @@ export class DeletedAccountReferenceRule implements IRule {
                         date: new Date(f.txn.date),
                         amount: f.txn.amount,
                         currency: f.txn.rawData?.CurrencyRef?.value || 'USD',
-                        deepLink: `https://sandbox.qbo.intuit.com/app/${qboPath}?realmId=${realmId}&txnId=${f.txn.qbId}`,
+                        deepLink: buildQboDeepLink(qboPath, realmId, f.txn.qbId),
                         metadata: {
                             accountId: f.accountId,
                             detailType: f.detailType,
