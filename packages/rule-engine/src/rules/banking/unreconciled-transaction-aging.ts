@@ -1,4 +1,5 @@
 ﻿import { z } from 'zod';
+import { Prisma } from '@qb-health/financial-model'; // <-- ADDED IMPORT
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -6,7 +7,6 @@ import { transactionGenerator, normalizeTransactionBatch } from '../../core/shar
 import { safeDecimal, safeDate, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unreconciled-transaction-aging';
-import Decimal from 'decimal.js';
 import { buildQboDeepLink, QboDeepLinkEntity } from '../../core/shared/deeplink';
 
 const TxnRawSchema = z.object({
@@ -25,7 +25,7 @@ type RawTransaction = {
     id: string;
     qbId: string;
     date: Date;
-    amount: Decimal;
+    amount: any; // Changed from Decimal to any to accommodate Prisma.Decimal safely
     rawData: any;
     type?: string;
     vendorId?: string;
@@ -49,10 +49,11 @@ type FinalEnrichedFinding = EnrichedFinding & {
     impactScore: number;
     type?: string;
 };
+
 const QBO_ROUTE_MAP: Record<string, QboDeepLinkEntity> = {
     journalentry: 'journal',
     journal: 'journal',
-    check: 'check',         // ← see note
+    check: 'check',
     deposit: 'deposit',
     transfer: 'transfer',
     bill: 'bill',
@@ -63,6 +64,7 @@ const QBO_ROUTE_MAP: Record<string, QboDeepLinkEntity> = {
     creditmemo: 'creditmemo',
     billpayment: 'billpayment'
 };
+
 const AGING_THRESHOLD_DAYS = 60;
 const UNRECONCILED_TYPES = ['Check', 'Deposit', 'Transfer', 'JournalEntry'];
 
@@ -112,30 +114,49 @@ export class UnreconciledTransactionAgingRule implements IRule {
             .withEnrichment((detected: DetectionResult) => {
                 return detected.findings.map((f): FinalEnrichedFinding => {
                     const raw = f.qboData;
-                    const amount = new Decimal(raw.TotalAmt || 0);
                     const date = raw.TxnDate || f.date;
                     const parsedDate = new Date(date);
                     const daysOld = Math.floor((Date.now() - parsedDate.getTime()) / 86400000);
                     const txnType = f.type || raw.TxnType || raw.type || 'Transaction';
+                    const currency = raw.CurrencyRef?.value || 'USD';
 
                     const route: QboDeepLinkEntity = QBO_ROUTE_MAP[txnType.toLowerCase()] ?? 'txndetail';
 
+                    // --- CRITICAL FIX: Safely extract plain number and Prisma Decimal ---
+                    // Handle Prisma Decimal objects from safeDecimal schema
+                    const plainExposureAmount = typeof raw.TotalAmt?.toNumber === 'function'
+                        ? raw.TotalAmt.toNumber()
+                        : Number(raw.TotalAmt || 0);
+
+                    const decimalAmount = new Prisma.Decimal(plainExposureAmount);
 
                     return {
                         id: f.qbId,
                         type: txnType,
                         label: `${txnType} ${f.qbId}`,
                         date: parsedDate,
-                        amount: amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: decimalAmount,
+                        currency: currency,
+
                         fingerprint: generateFingerprint([this.id, f.qbId]),
                         impactScore: Math.min(100, Math.round(20 + Math.min(80, daysOld / 5))),
                         metadata: {
                             qbId: f.qbId,
                             daysOld,
-                            txnType: txnType
+                            txnType: txnType,
+
+                            // --- ADD THESE FOR PIPELINE AGGREGATION & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        entities: [{ id: f.qbId, type: txnType, amount, date: parsedDate }],
+                        entities: [{
+                            id: f.qbId,
+                            type: txnType,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            date: parsedDate
+                        }],
                         deepLink: buildQboDeepLink(route, ctx.realmId, f.qbId),
                     };
                 });

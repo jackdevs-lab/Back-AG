@@ -12,6 +12,7 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { z } from 'zod';
 import { formatSummary } from '../../core/report/broken-transaction-link';
 import { buildQboDeepLink, QboDeepLinkEntity } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model'; // <-- ADDED IMPORT
 
 const CombinedTxnSchema = z.union([
     BillRawSchema,
@@ -83,18 +84,34 @@ export class BrokenTransactionLinkRule implements IRule {
                         ? buildQboDeepLink(routePath, realmId, f.source.qbId)
                         : undefined;
 
+                    // --- CRITICAL FIX: Safely extract plain number and Prisma Decimal ---
+                    // Handle both standard numbers and Prisma Decimal objects from the DB
+                    const plainExposureAmount = typeof f.source.amount?.toNumber === 'function'
+                        ? f.source.amount.toNumber()
+                        : Number(f.source.amount || 0);
+
+                    const decimalAmount = new Prisma.Decimal(plainExposureAmount);
+                    const currency = f.source.qboData?.CurrencyRef?.value || 'USD';
+
                     return {
                         id: f.source.qbId,
                         label: `Broken link to ${f.link.TxnType || 'transaction'} ${f.link.TxnId}`,
                         date: f.source.date,
-                        amount: f.source.amount || 0,
-                        currency: f.source.qboData?.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: decimalAmount,
+                        currency: currency,
+
                         fingerprint: generateFingerprint([this.id, f.source.qbId, f.link.TxnId]),
                         metadata: {
                             impactScore: 30,
                             sourceType,
                             targetId: f.link.TxnId,
-                            targetType: f.link.TxnType || 'Unknown'
+                            targetType: f.link.TxnType || 'Unknown',
+
+                            // --- ADD THESE FOR PIPELINE AGGREGATION & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{ id: f.source.qbId }, { id: f.link.TxnId }],
                         deepLink

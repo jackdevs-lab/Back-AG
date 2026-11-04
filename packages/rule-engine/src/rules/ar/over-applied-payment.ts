@@ -57,8 +57,8 @@ export class OverAppliedPaymentRule implements IRule {
                     const raw = pay.qboData;
                     if (!Array.isArray(raw.Line) || raw.Line.length === 0) return false;
 
-                    const totalApplied = raw.Line.reduce((sum: number, l: any) => sum + (l.Amount || 0), 0);
-                    const totalAmt = raw.TotalAmt || 0;
+                    const totalApplied = raw.Line.reduce((sum: number, l: any) => sum + Number(l.Amount || 0), 0);
+                    const totalAmt = Number(raw.TotalAmt || 0);
 
                     return totalApplied > totalAmt + 0.01;
                 });
@@ -68,24 +68,29 @@ export class OverAppliedPaymentRule implements IRule {
             .withEnrichment((detected): PipelineEnrichedFinding[] => {
                 return detected.findings.map((f: NormalizedItem): PipelineEnrichedFinding => {
                     const raw = f.qboData;
-                    const amountValue = raw.TotalAmt || 0;
 
-                    const amount = new Prisma.Decimal(amountValue);
+                    // 1. Safely extract plain numbers
+                    const amountValue = Number(raw.TotalAmt || 0);
+                    const totalApplied = (raw.Line || []).reduce((sum: number, l: any) => sum + Number(l.Amount || 0), 0);
+                    const variance = totalApplied - amountValue; // The over-applied amount
 
-                    const totalApplied = (raw.Line || []).reduce((sum: number, l: any) => sum + (l.Amount || 0), 0);
-                    const variance = totalApplied - amountValue;
                     const dateSource = (raw as any).TxnDate || f.date;
                     const date = new Date(dateSource as string | number | Date);
+                    const currency = raw.CurrencyRef?.value || 'USD';
 
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const impactScore = Math.min(100, Math.round(50 * Math.min(2, variance / 500)));
+                    const impactScore = Math.min(100, Math.round(50 * Math.min(2, Math.abs(variance) / 500)));
+
+                    // 2. Create Prisma.Decimal for the schema, and plain number for metadata/API
+                    const decimalAmount = new Prisma.Decimal(amountValue);
+                    const plainExposureAmount = Math.abs(variance); // NOTE: Using variance as the true "exposure". Change to `amountValue` if you want the total payment amount.
 
                     return {
                         id: f.qbId,
                         label: `Payment ${f.qbId}`,
                         date: date,
-                        amount: amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+                        amount: decimalAmount, // Satisfies EnrichedFindingSchema
+                        currency: currency,
                         deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId),
                         fingerprint,
                         impactScore,
@@ -95,7 +100,11 @@ export class OverAppliedPaymentRule implements IRule {
                             totalApplied,
                             variance,
                             impactScore,
-                            fingerprint
+                            fingerprint,
+
+                            // --- CRITICAL FIX: Add these for PipelineRunner aggregation & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
