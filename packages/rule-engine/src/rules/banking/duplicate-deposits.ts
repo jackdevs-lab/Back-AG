@@ -1,4 +1,5 @@
 ﻿// rule.ts
+
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
@@ -75,14 +76,18 @@ export class DuplicateDepositsRule implements IRule {
                 return detected.findings.map((cluster) => {
                     const f = cluster[0];
                     const raw = f.qboData;
-
-                    const amount = new Prisma.Decimal(raw.TotalAmt || 0);
+                    const currency = raw.CurrencyRef?.value || 'USD';
                     const date = raw.TxnDate || f.date;
 
-                    // One finding = N duplicate deposits. Emit every deposit's
-                    // deep link in metadata (array) and promote the first one
-                    // to the scalar `deepLink` field. The pipeline/worker/UI
-                    // require a string; arrays are silently coerced to null.
+                    // --- CRITICAL FIX: Type-safe amount extraction ---
+                    // f.amount is Prisma.Decimal, raw.TotalAmt is a plain number
+                    const plainExposureAmount = typeof f.amount?.toNumber === 'function'
+                        ? f.amount.toNumber()
+                        : Number(raw.TotalAmt || 0);
+
+                    // Wrap for Prisma schema compliance
+                    const decimalAmount = new Prisma.Decimal(plainExposureAmount);
+
                     const clusterLinks = cluster.map(
                         c => buildQboDeepLink('deposit', realmId, c.qbId)
                     );
@@ -90,20 +95,24 @@ export class DuplicateDepositsRule implements IRule {
                     return {
                         id: f.qbId,
                         label: 'Duplicate Deposit',
-                        amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+                        amount: decimalAmount,
+                        currency: currency,
                         date: new Date(date),
                         metadata: {
                             clusterIds: cluster.map(c => c.qbId),
                             qbId: f.qbId,
-                            impactScore: Math.min(100, Math.round(30 * Math.min(2, amount.toNumber() / 1000))),
-                            clusterLinks
+                            impactScore: Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000))),
+                            clusterLinks,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: cluster.map(c => ({
                             id: c.qbId,
                             type: 'Deposit',
-                            amount,
-                            date: new Date(date)
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            date: new Date(c.date) // Use c.date for accuracy per entity
                         })),
                         fingerprint: generateFingerprint([this.id, ...cluster.map(c => c.qbId)]),
                         deepLink: clusterLinks[0]

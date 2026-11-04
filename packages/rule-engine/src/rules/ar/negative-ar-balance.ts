@@ -63,27 +63,41 @@ export class NegativeARBalanceRule implements IRule {
             })
             .withEnrichment((detected: { findings: any[] }) => {
                 return detected.findings.map((f) => {
-                    const balance = f.balance;
-                    const amountNum = Math.abs(balance);
-                    const fingerprint = generateFingerprint([f.qbId, balance.toString()]);
-                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, amountNum / 1000)));
+                    const rawBalance = f.balance;
+
+                    // --- CRITICAL FIX: Safely extract plain number and use absolute value for exposure ---
+                    const plainExposureAmount = typeof rawBalance?.toNumber === 'function'
+                        ? Math.abs(rawBalance.toNumber())
+                        : Math.abs(Number(rawBalance || 0));
+
+                    const currency = f.currency || 'USD';
+                    const fingerprint = generateFingerprint([this.id, f.qbId]);
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: f.qbId,
+                        label: `${f.name || 'Unknown Customer'} - Negative Balance`, // Added for schema compliance
                         fingerprint,
                         impactScore,
-                        amount: amountNum,
-                        currency: 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         metadata: {
                             qbId: f.qbId,
                             name: f.name || 'Unknown Customer',
-                            balance: balance
+                            originalBalance: typeof rawBalance?.toNumber === 'function' ? rawBalance.toNumber() : Number(rawBalance || 0), // Keep original for context
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             type: 'Customer',
-                            amount: amountNum,
-                            balance: balance
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            currency: currency
                         }]
                     };
                 });

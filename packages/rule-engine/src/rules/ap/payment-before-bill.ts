@@ -1,5 +1,6 @@
 ﻿// rule.ts
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -88,22 +89,51 @@ export class PaymentBeforeBillRule implements IRule {
             .withEnrichment((det: { findings: any[] }, ctx: RuleContext): EnrichedFinding[] => {
                 return det.findings.map((f: any): EnrichedFinding => {
                     const fingerprint = generateFingerprint([this.id, f.payment.qbId, f.bill.qbId]);
+                    const currency = f.payment.qboData?.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.payment.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
 
                     return {
                         id: `${f.payment.qbId}-${f.bill.qbId}`,
                         label: `Payment precedes Bill (Vendor ID: ${f.payment.vendorId || 'Unknown'})`,
                         date: f.payment.date,
-                        amount: f.payment.amount,
-                        currency: f.payment.currency || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         metadata: {
                             fingerprint,
                             paymentId: f.payment.qbId,
                             billId: f.bill.qbId,
                             paymentDate: f.payment.date,
                             billDate: f.bill.date,
-                            vendorId: f.payment.vendorId
+                            vendorId: f.payment.vendorId,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        entities: [f.payment, f.bill],
+
+                        // --- CRITICAL FIX: Clean up entities to prevent massive JSON serialization bloat ---
+                        entities: [
+                            {
+                                id: f.payment.qbId,
+                                type: 'BillPayment',
+                                amount: plainExposureAmount, // Use plain number for clean JSON
+                                date: f.payment.date
+                            },
+                            {
+                                id: f.bill.qbId,
+                                type: 'Bill',
+                                date: f.bill.date
+                            }
+                        ],
+
                         deepLink: [
                             buildQboDeepLink('billpayment', realmId, f.payment.qbId),
                             buildQboDeepLink('bill', realmId, f.bill.qbId)

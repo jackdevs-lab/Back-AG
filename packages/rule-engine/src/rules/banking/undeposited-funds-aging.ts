@@ -5,6 +5,8 @@ import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schema
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/undeposited-funds-aging';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 export class UndepositedFundsAgingRule implements IRule {
     id: RuleId = 'UNDEPOSITED_FUNDS_AGING' as unknown as RuleId;
@@ -67,17 +69,36 @@ export class UndepositedFundsAgingRule implements IRule {
             .withEnrichment((det) => {
                 const enriched: EnrichedFinding[] = det.findings.map((f: any) => {
                     const route = f.type === 'Payment' ? 'recvpayment' : 'salesreceipt';
+                    const currency = f.qboData?.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
                     return {
                         id: f.qbId,
                         label: `${f.type} Record`,
                         date: new Date(f.date),
-                        amount: f.amount,
-                        currency: f.qboData?.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         metadata: {
-                            customer: f.qboData?.CustomerRef?.name || 'Unknown'
+                            customer: f.qboData?.CustomerRef?.name || 'Unknown',
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [
-                            { id: f.qbId, type: f.type, amount: f.amount }
+                            {
+                                id: f.qbId,
+                                type: f.type,
+                                amount: plainExposureAmount // Use plain number for clean JSON
+                            }
                         ],
                         fingerprint: generateFingerprint([this.id, f.qbId]),
                         deepLink: buildQboDeepLink(route, realmId, f.qbId)

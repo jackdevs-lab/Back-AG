@@ -7,6 +7,8 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/bill-payment-without-bill';
 import { z } from 'zod';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof BillPaymentRawSchema> })[];
@@ -60,17 +62,26 @@ export class BillPaymentWithoutBillRule implements IRule {
             })
             .withEnrichment((detected: { findings: any[] }): EnrichedFinding[] => {
                 return detected.findings.map((f: any) => {
-                    const amount = f.amount?.toNumber ? f.amount.toNumber() : Number(f.amount || 0);
+                    const currency = f.qboData?.CurrencyRef?.value || 'USD';
                     const fingerprint = generateFingerprint([this.id, f.qbId || 'unknown']);
 
-                    const impactScore = Math.min(100, Math.round(20 * Math.min(5, amount / 500)));
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    const impactScore = Math.min(100, Math.round(20 * Math.min(5, plainExposureAmount / 500)));
 
                     return {
                         id: f.id || f.qbId,
                         label: `Unlinked Bill Payment ${f.qbId}`,
                         date: f.date,
-                        amount: amount,
-                        currency: f.qboData?.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         fingerprint,
                         impactScore,
                         metadata: {
@@ -80,13 +91,17 @@ export class BillPaymentWithoutBillRule implements IRule {
                             auditMetadata: {
                                 timestamp: new Date().toISOString(),
                                 scoreContribution: impactScore
-                            }
+                            },
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             type: 'BillPayment',
-                            amount: amount,
-                            currency: f.qboData?.CurrencyRef?.value || 'USD',
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            currency: currency,
                             date: f.date,
                             currencyConfidence: 1,
                             vendorConfidence: f.vendorId ? 1 : 0,

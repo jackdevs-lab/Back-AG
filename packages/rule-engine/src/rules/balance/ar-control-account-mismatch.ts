@@ -63,17 +63,40 @@ export class ArControlAccountMismatchRule implements IRule {
                             !detail?.Entity?.EntityRef?.value;
                     });
 
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = arLine?.Amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    // Extract currency safely from the transaction
+                    const currency = f.qboData?.CurrencyRef?.value || 'USD';
+
                     return {
                         id: f.qbId,
                         label: `Journal Entry ${f.qboData?.DocNumber || f.qbId}`,
                         date: f.date,
-                        amount: new Prisma.Decimal(arLine?.Amount || 0),
-                        currency: 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         metadata: {
-                            fingerprint: generateFingerprint([this.id, f.qbId])
+                            fingerprint: generateFingerprint([this.id, f.qbId]),
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        // Entities — without this, entityCount is 0 in the UI
-                        entities: [{ id: f.qbId }],
+
+                        // Entities — enriched with amount and type for better UI context
+                        entities: [{
+                            id: f.qbId,
+                            type: 'JournalEntry',
+                            amount: plainExposureAmount,
+                            date: f.date
+                        }],
+
                         // Deep link — journal entries live at /app/journal in QBO
                         deepLink: buildQboDeepLink('journal', ctx.realmId, f.qbId)
                     };

@@ -6,6 +6,7 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unapplied-payments';
 import { z } from 'zod';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@prisma/client';
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -63,23 +64,44 @@ export class UnappliedPaymentsRule implements IRule {
             .withEnrichment((detected: { findings: any[] }) => {
                 return detected.findings.map((pay) => {
                     const raw: any = pay.qboData;
-                    const amount = raw.TotalAmt || 0;
                     const date = raw.TxnDate || pay.date;
+                    const currency = raw.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = raw.TotalAmt || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    // Wrap for Prisma schema compliance
+                    const decimalAmount = new Prisma.Decimal(plainExposureAmount);
 
                     return {
                         id: pay.qbId,
                         label: `Unapplied Payment: ${pay.qbId}`,
                         date: new Date(date),
-                        amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: decimalAmount,
+                        currency: currency,
+
                         deepLink: buildQboDeepLink('recvpayment', realmId, pay.qbId),
                         fingerprint: generateFingerprint([this.id, pay.qbId]),
-                        impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
+                        impactScore: Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000))),
                         metadata: {
                             qbId: pay.qbId,
-                            customerId: raw.CustomerRef?.value
+                            customerId: raw.CustomerRef?.value,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        entities: [{ id: pay.qbId, type: 'Payment', amount, date: new Date(date) }]
+                        entities: [{
+                            id: pay.qbId,
+                            type: 'Payment',
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            date: new Date(date)
+                        }]
                     };
                 });
             })

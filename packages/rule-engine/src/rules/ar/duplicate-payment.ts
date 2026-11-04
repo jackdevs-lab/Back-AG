@@ -6,6 +6,8 @@ import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schema
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-payment';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 type NormalizedBatch = {
     normalized: (any & { qboData: import('zod').infer<typeof PaymentRawSchema> })[];
@@ -69,37 +71,45 @@ export class DuplicatePaymentRule implements IRule {
             .withEnrichment((detected: { findings: any[][] }) => {
                 return detected.findings.map((cluster) => {
                     const first = cluster[0];
-                    const amount = first.qboData.TotalAmt || 0;
+                    const currency = first.qboData.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = first.qboData.TotalAmt || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
 
                     const clusterIds = cluster.map((c: any) => c.qbId);
                     const fingerprint = generateFingerprint([this.id, ...clusterIds]);
 
-                    // One finding = N duplicate payments. Emit every payment's
-                    // deep link in metadata (array) and promote the first one
-                    // to the scalar `deepLink` field. The pipeline/worker/UI
-                    // require a string; arrays are silently coerced to null.
                     const clusterLinks = cluster.map(
                         (c: any) => buildQboDeepLink('recvpayment', realmId, c.qbId)
                     );
 
                     return {
                         id: first.qbId,
-                        label: `Duplicate Payments of ${amount.toFixed(2)}`,
+                        label: `Duplicate Payments of ${plainExposureAmount.toFixed(2)}`,
                         date: new Date(first.qboData.TxnDate || first.date),
-                        amount: amount,
-                        currency: first.qboData.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         fingerprint: fingerprint,
                         metadata: {
                             customerId: first.qboData.CustomerRef?.value,
                             clusterIds: clusterIds,
                             paymentMethodId: first.qboData.PaymentMethodRef?.value,
-                            currency: first.qboData.CurrencyRef?.value,
-                            clusterLinks
+                            clusterLinks,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: cluster.map((c: any) => ({
                             id: c.qbId,
                             type: 'Payment',
-                            amount,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
                             date: new Date(c.qboData.TxnDate || c.date)
                         })),
                         deepLink: clusterLinks[0]

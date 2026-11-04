@@ -7,6 +7,8 @@ import { PaymentRawSchema, EnrichedFinding } from '../../core/shared/base-schema
 import { formatSummary } from '../../core/report/payment-without-invoice';
 import { z } from 'zod';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 type NormalizedBatch = {
     normalized: (any & { qboData: z.infer<typeof PaymentRawSchema> })[];
@@ -61,32 +63,44 @@ export class PaymentWithoutInvoiceRule implements IRule {
             .withEnrichment((detected: { findings: any[] }) => {
                 return detected.findings.map((f: any) => {
                     const raw = f.qboData;
-                    const amount = raw.TotalAmt || 0;
                     const date = raw.TxnDate || f.date;
+                    const currency = raw.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = raw.TotalAmt || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
 
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, amount / 1000)));
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: f.qbId,
                         label: `Payment ${f.qbId}`,
                         fingerprint,
                         impactScore,
-                        amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
                         date: new Date(date),
                         metadata: {
                             customerId: raw.CustomerRef?.value,
-                            qbId: f.qbId
+                            qbId: f.qbId,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             type: 'Payment',
-                            amount,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
                             date: new Date(date)
                         }],
                         deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId)
-                    };
+                    } as EnrichedFinding & { fingerprint: string; impactScore: number };
                 });
             })
             .withReporting((reportData: any, _ctx: RuleContext, unscannable: any[]) => {
