@@ -178,6 +178,8 @@ export interface DiagnosticCheck {
     message: string | null;
     durationMs: number | null;
     createdAt: Date;
+    ruleExposureAmount?: number;
+    currency?: string;
 }
 
 export interface Issue {
