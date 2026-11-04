@@ -183,9 +183,9 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
                 report = await this._reportStep(finalEnriched, this.ctx, finalNorm);
             }
 
+
             issues.forEach(issue => {
-                // Prefer the per-finding label (specific to this row) over the
-                // rule-level report (same string on every row).
+
                 issue.message = issue.label && issue.label.length > 0 ? issue.label : report;
             });
 
@@ -198,13 +198,21 @@ export class PipelineRunner<TData = any, TNorm = any, TDet = any, TEnriched = an
 
             const totalDetected = issues.length;
 
-            // Updated return block with explicit mappings and total counts exposed
+            const ruleExposureAmount = issues.reduce((sum, issue) => {
+                return sum + Number(issue.metadata?.exposureAmount || 0);
+            }, 0);
+
+            const currency = issues.length > 0 ? (issues[0].metadata?.currency || 'USD') : 'USD';
+
             return {
                 ruleId: this.ruleId,
                 status: issues.length > 0 ? 'WARNING' : 'PASSED',
                 message: report,
                 issues,
-                totalDetected
+                totalDetected,
+                ruleExposureAmount,
+                currency
+
             } as unknown as RuleExecutionResult;
 
         } catch (error) {

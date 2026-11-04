@@ -27,10 +27,14 @@ export interface Issue {
 }
 
 export interface RuleExecutionResult {
+    ruleId?: RuleId;
     issues: Issue[];
     status: 'PASSED' | 'FAILED' | 'WARNING' | 'ERROR';
     errorCode?: string;
     message?: string;
+    totalDetected?: number;
+    ruleExposureAmount?: number;
+    currency?: string;
 }
 
 export interface IRule {
