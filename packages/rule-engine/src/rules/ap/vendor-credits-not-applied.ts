@@ -7,6 +7,8 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { RuleContext, IRule, RuleExecutionResult, RuleId } from '../../types';
 import { formatSummary } from '../../core/report/vendor-credits-not-applied';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 export class VendorCreditsNotAppliedRule implements IRule {
     id: RuleId = 'VENDOR_CREDIT_NOT_APPLIED' as unknown as RuleId;
@@ -54,23 +56,39 @@ export class VendorCreditsNotAppliedRule implements IRule {
 
                 const enriched: (EnrichedFinding & { fingerprint: string })[] = findings.map((f: any) => {
                     const vendorName = vendorMap.get(f.vendorId) || 'Unknown Vendor';
+                    const currency = f.qboData.CurrencyRef?.value || 'USD';
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
+
+                    // --- CRITICAL FIX: Safely extract and convert amount (use absolute value for exposure) ---
+                    const rawBalance = f.qboData.Balance || 0;
+                    const plainExposureAmount = typeof rawBalance?.toNumber === 'function'
+                        ? Math.abs(rawBalance.toNumber())
+                        : Math.abs(Number(rawBalance || 0));
 
                     return {
                         id: f.qbId,
-                        label: vendorName,
+                        label: `${vendorName} - Unapplied Credit`,
                         date: f.date,
-                        amount: f.qboData.Balance || 0,
-                        currency: f.qboData.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         fingerprint,
                         metadata: {
-                            fingerprint
+                            fingerprint,
+                            vendorId: f.vendorId,
+                            vendorName: vendorName,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             vendorId: f.vendorId,
-                            unappliedBalance: f.qboData.Balance,
-                            currency: f.qboData.CurrencyRef?.value || 'USD',
+                            unappliedBalance: plainExposureAmount, // Use plain number for clean JSON
+                            currency: currency,
                             date: f.date
                         }],
                         deepLink: buildQboDeepLink('vendorcredit', realmId, f.qbId)

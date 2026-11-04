@@ -1,4 +1,6 @@
-﻿import { z } from 'zod';
+﻿import { Prisma } from '@qb-health/financial-model';
+
+import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -74,28 +76,42 @@ export class OrphanedPaymentRule implements IRule {
             .withEnrichment((detected: { findings: any[] }): EnrichedFinding[] => {
                 return detected.findings.map((f) => {
                     const raw = f.qboData;
-                    const amount = raw.TotalAmt || 0;
                     const date = raw.TxnDate || f.date;
+                    const currency = raw.CurrencyRef?.value || 'USD';
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, amount / 1000)));
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = raw.TotalAmt || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: f.qbId,
                         label: `Orphaned Payment ${f.qbId}`,
                         date: new Date(date),
-                        amount: amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         deepLink: buildQboDeepLink('recvpayment', realmId, f.qbId),
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             qbId: f.qbId,
                             fingerprint,
-                            impactScore
+                            impactScore,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             type: 'Payment',
-                            amount,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
                             date: new Date(date)
                         }]
                     };

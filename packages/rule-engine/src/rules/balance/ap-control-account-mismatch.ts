@@ -80,19 +80,44 @@ export class ApControlAccountMismatchRule implements IRule {
             .withEnrichment((det: DetectionResult, ctx: RuleContext): EnrichedFinding[] => {
                 if (!det.findings || det.findings.length === 0) return [];
 
-                return det.findings.map((f) => ({
-                    id: f.qbId,
-                    label: 'Direct AP Journal Entry',
-                    date: f.date ? new Date(f.date) : new Date(),
-                    amount: f.variance,
-                    currency: 'USD',
-                    fingerprint: generateFingerprint([this.id, f.qbId]),
-                    metadata: {
-                        impactScore: calculateImpactScore(f.variance.toNumber())
-                    },
-                    entities: [{ id: f.qbId }],
-                    deepLink: buildQboDeepLink('journal', ctx.realmId, f.qbId)
-                }));
+                return det.findings.map((f) => {
+                    // 1. Safely extract plain number from Prisma.Decimal (use absolute value for exposure)
+                    const plainExposureAmount = typeof f.variance?.toNumber === 'function'
+                        ? Math.abs(f.variance.toNumber())
+                        : Math.abs(Number(f.variance || 0));
+
+                    // 2. Extract currency dynamically from the raw Journal Entry data
+                    const currency = f.rawData?.CurrencyRef?.value || 'USD';
+
+                    return {
+                        id: f.qbId,
+                        label: 'Direct AP Journal Entry',
+                        date: f.date ? new Date(f.date) : new Date(),
+
+                        // 3. Satisfy EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
+                        fingerprint: generateFingerprint([this.id, f.qbId]),
+                        metadata: {
+                            impactScore: calculateImpactScore(plainExposureAmount),
+
+                            // 4. NEW: Add these for database save & API
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
+                        },
+
+                        // Enriched entities for better UI context
+                        entities: [{
+                            id: f.qbId,
+                            type: 'JournalEntry',
+                            amount: plainExposureAmount,
+                            date: f.date ? new Date(f.date) : new Date()
+                        }],
+
+                        deepLink: buildQboDeepLink('journal', ctx.realmId, f.qbId)
+                    };
+                });
             })
             .withReporting((reportData: any, ctx: RuleContext, unscannable: any[]) => {
                 return formatSummary(reportData, unscannable);

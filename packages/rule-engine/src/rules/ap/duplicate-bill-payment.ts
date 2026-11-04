@@ -9,6 +9,7 @@ import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-bill-payment';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
 
+
 export class DuplicateBillPaymentsRule implements IRule {
     public id: RuleId = 'DUPLICATE_BILL_PAYMENTS' as unknown as RuleId;
     public name = 'Duplicate Bill Payments';
@@ -65,20 +66,44 @@ export class DuplicateBillPaymentsRule implements IRule {
             })
             .withEnrichment((detections, _ctx, _norm) => {
                 return detections.findings.map((f: any) => {
-                    const amountDecimal = new Prisma.Decimal(f.qboData.TotalAmt || 0);
+                    const currency = f.qboData.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.qboData.TotalAmt || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    const amountDecimal = new Prisma.Decimal(plainExposureAmount);
+                    const fingerprint = generateFingerprint([this.id, f.qbId]);
 
                     const finding: EnrichedFinding & { fingerprint: string } = {
-                        id: this.id,
+                        id: f.qbId, // Fixed: was this.id, which would make all findings have the same ID
                         label: `Duplicate Payment: Ref ${f.qboData.PaymentRefNum}`,
                         date: new Date(f.date),
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
                         amount: amountDecimal,
-                        currency: f.qboData.CurrencyRef?.value || 'USD',
+                        currency: currency,
+
                         metadata: {
                             duplicateOf: f.duplicateOf,
-                            vendorId: f.vendorId
+                            vendorId: f.vendorId,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        entities: f.clusterItems,
-                        fingerprint: generateFingerprint([this.id, f.qbId]),
+
+                        // Clean up entities to prevent serializing massive raw objects
+                        entities: f.clusterItems.map((c: any) => ({
+                            id: c.qbId,
+                            type: 'BillPayment',
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            date: c.date
+                        })),
+
+                        fingerprint: fingerprint,
                         deepLink: f.clusterItems.map((entity: any) =>
                             buildQboDeepLink('billpayment', realmId, entity.qbId)
                         ).join(', ')

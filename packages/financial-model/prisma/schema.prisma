@@ -223,6 +223,8 @@ model DiagnosticCheck {
   message    String?
   durationMs Int?
   createdAt  DateTime      @default(now())
+  ruleExposureAmount Decimal?
+  currency           String?
   run        DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@index([runId])
@@ -244,6 +246,7 @@ model Issue {
   correlationId String?
   deepLink String?
   createdAt     DateTime      @default(now())
+  metadata      Json?
   connection    QbConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   run           DiagnosticRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 

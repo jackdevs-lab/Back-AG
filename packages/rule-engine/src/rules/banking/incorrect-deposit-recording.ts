@@ -1,4 +1,6 @@
 ﻿// rule.ts
+import { Prisma } from '@qb-health/financial-model';
+
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { transactionGenerator, normalizeTransactionBatch } from '../../core/shared/data-primitives';
@@ -55,19 +57,41 @@ export class IncorrectDepositRecordingRule implements IRule {
             .withEnrichment((detected: { findings: any[] }) => {
                 return detected.findings.map((d): EnrichedFinding & { fingerprint: string, impactScore: number } => {
                     const raw: any = d.qboData;
-                    const amount = raw.TotalAmt || 0;
                     const date = raw.TxnDate || d.date;
+                    const currency = raw.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = raw.TotalAmt || d.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: d.qbId,
                         label: `Deposit ${d.qbId}`,
                         date: new Date(date),
-                        amount: amount,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         fingerprint: generateFingerprint([this.id, d.qbId]),
-                        impactScore: Math.min(100, Math.round(30 * Math.min(2, amount / 1000))),
-                        metadata: { qbId: d.qbId },
-                        entities: [{ id: d.qbId, type: 'Deposit', amount, date: new Date(date) }],
+                        impactScore: impactScore,
+                        metadata: {
+                            qbId: d.qbId,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
+                        },
+                        entities: [{
+                            id: d.qbId,
+                            type: 'Deposit',
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            date: new Date(date)
+                        }],
                         deepLink: buildQboDeepLink('deposit', realmId, d.qbId)
                     };
                 });

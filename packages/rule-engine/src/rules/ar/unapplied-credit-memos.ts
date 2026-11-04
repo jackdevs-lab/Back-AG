@@ -6,6 +6,8 @@ import { CreditMemoRawSchema, EnrichedFinding } from '../../core/shared/base-sch
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/unapplied-credit-memos';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 type NormalizedBatch = {
     normalized: (any & { qboData: any })[];
@@ -54,32 +56,51 @@ export class UnappliedCreditMemosRule implements IRule {
             .withEnrichment((detected: { findings: any[] }) => {
                 return detected.findings.map((f) => {
                     const raw = f.qboData;
-                    const balance = raw.Balance || 0;
-                    const amount = raw.TotalAmt || 0;
                     const date = raw.TxnDate || f.date;
+                    const currency = raw.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amounts ---
+                    // The exposure is the unapplied balance, not the total amount
+                    const rawBalance = raw.Balance || 0;
+                    const plainExposureAmount = typeof rawBalance?.toNumber === 'function'
+                        ? rawBalance.toNumber()
+                        : Number(rawBalance || 0);
+
+                    // Also extract total amount for reference
+                    const rawTotalAmt = raw.TotalAmt || 0;
+                    const plainTotalAmount = typeof rawTotalAmt?.toNumber === 'function'
+                        ? rawTotalAmt.toNumber()
+                        : Number(rawTotalAmt || 0);
 
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, balance / 1000)));
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: f.qbId,
                         label: `Credit Memo ${f.qbId}`,
                         date: new Date(date),
-                        amount: balance,
-                        currency: raw.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         fingerprint,
                         impactScore,
                         metadata: {
                             customerId: raw.CustomerRef?.value,
                             qbId: f.qbId,
-                            unappliedAmount: balance,
-                            originalAmount: amount
+                            unappliedAmount: plainExposureAmount,
+                            originalAmount: plainTotalAmount,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [{
                             id: f.qbId,
                             type: 'CreditMemo',
-                            amount,
-                            unappliedAmount: balance,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
+                            unappliedAmount: plainExposureAmount,
                             date: new Date(date)
                         }],
                         deepLink: buildQboDeepLink('creditmemo', realmId, f.qbId)

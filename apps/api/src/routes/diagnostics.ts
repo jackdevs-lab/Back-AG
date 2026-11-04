@@ -308,8 +308,13 @@ router.get('/runs/:runId/issues', async (req: AuthRequest, res: Response, next) 
                     message: true,
                     isResolved: true,
                     deepLink: true,
-                    entities: { select: { entityId: true } },
-                    _count: { select: { entities: true } },
+                    metadata: true, // Now valid after schema update
+                    entities: {
+                        select: { entityId: true }
+                    },
+                    _count: {
+                        select: { entities: true }
+                    },
                 },
             }),
         ]);
@@ -320,11 +325,25 @@ router.get('/runs/:runId/issues', async (req: AuthRequest, res: Response, next) 
                 total,
                 limit: parsedLimit,
                 offset: parsedOffset,
-                issues: issues.map(({ _count, entities, ...rest }) => ({
-                    ...rest,
-                    entityCount: _count.entities,
-                    entityIds: entities.map(e => e.entityId),
-                })),
+                issues: issues.map((issue) => {
+                    const meta = (issue.metadata as any) || {};
+
+                    return {
+                        id: issue.id,
+                        ruleId: issue.ruleId,
+                        ruleName: issue.ruleName,
+                        severity: issue.severity,
+                        message: issue.message,
+                        isResolved: issue.isResolved,
+                        deepLink: issue.deepLink,
+                        entityCount: issue._count.entities,
+                        entityIds: issue.entities.map(e => e.entityId),
+
+                        // NEW: Expose the amount and currency to the frontend
+                        exposureAmount: Number(meta.exposureAmount ?? 0),
+                        currency: meta.currency ?? 'USD',
+                    };
+                }),
             },
         });
     } catch (error) {
@@ -342,13 +361,14 @@ router.get('/runs/:runId/rules', async (req: AuthRequest, res: Response, next) =
         });
         if (!run) throw new AppError('Run not found', 404);
 
+        // 1. Get basic grouping
         const grouped = await prisma.issue.groupBy({
             by: ['ruleId', 'ruleName', 'severity'],
             where: { runId },
             _count: { _all: true },
         });
 
-        // Entity counts per rule, one query, no issue-row traversal.
+        // 2. Entity counts per rule using raw SQL (efficient)
         const entityCounts = await prisma.$queryRaw<
             { ruleId: string; entityCount: bigint }[]
         >`
@@ -362,14 +382,37 @@ router.get('/runs/:runId/rules', async (req: AuthRequest, res: Response, next) =
             entityCounts.map(r => [r.ruleId, Number(r.entityCount)])
         );
 
+        // 3. Aggregate financial exposure per rule from metadata
+        const issuesForExposure = await prisma.issue.findMany({
+            where: { runId },
+            select: {
+                ruleId: true,
+                metadata: true,
+            }
+        });
+
+        const exposureMap = new Map<string, { amount: number; currency: string }>();
+
+        for (const issue of issuesForExposure) {
+            const meta = (issue.metadata as any) || {};
+            const amount = Number(meta.exposureAmount || 0);
+            const currency = meta.currency || 'USD';
+
+            if (!exposureMap.has(issue.ruleId)) {
+                exposureMap.set(issue.ruleId, { amount: 0, currency });
+            }
+            const current = exposureMap.get(issue.ruleId)!;
+            current.amount += amount;
+        }
+
+        // 4. Build the final rule breakdown
         const SEVERITY_RANK: Record<string, number> = { CRITICAL: 3, WARNING: 2, INFO: 1 };
-        const byRule = new Map<string, {
-            ruleId: string; ruleName: string; severity: string;
-            issueCount: number; entityCount: number;
-        }>();
+        const byRule = new Map<string, any>();
 
         for (const g of grouped) {
             const existing = byRule.get(g.ruleId);
+            const exposureData = exposureMap.get(g.ruleId) || { amount: 0, currency: 'USD' };
+
             if (!existing) {
                 byRule.set(g.ruleId, {
                     ruleId: g.ruleId,
@@ -377,9 +420,13 @@ router.get('/runs/:runId/rules', async (req: AuthRequest, res: Response, next) =
                     severity: g.severity,
                     issueCount: g._count._all,
                     entityCount: entityMap.get(g.ruleId) ?? 0,
+                    ruleExposureAmount: exposureData.amount,
+                    currency: exposureData.currency,
                 });
             } else {
                 existing.issueCount += g._count._all;
+                existing.ruleExposureAmount += exposureData.amount;
+
                 const cur = SEVERITY_RANK[g.severity] ?? 0;
                 const prev = SEVERITY_RANK[existing.severity] ?? 0;
                 if (cur > prev) existing.severity = g.severity;

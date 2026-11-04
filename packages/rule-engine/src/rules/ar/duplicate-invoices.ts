@@ -5,6 +5,7 @@ import { InvoiceRawSchema, EnrichedFinding } from '../../core/shared/base-schema
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/duplicate-invoices';
 import { z } from 'zod';
+import { Prisma } from '@qb-health/financial-model'; // <-- ADDED IMPORT
 import { buildQboDeepLink } from '../../core/shared/deeplink';
 
 type NormalizedBatch = {
@@ -48,7 +49,7 @@ export class DuplicateInvoicesRule implements IRule {
                     const raw = inv.qboData;
                     const customerKey = raw.CustomerRef?.value || 'NoCustomer';
                     const dateKey = raw.TxnDate || 'NoDate';
-                    const amountKey = raw.TotalAmt ? raw.TotalAmt.toFixed(2) : 'NoAmount';
+                    const amountKey = raw.TotalAmt ? Number(raw.TotalAmt).toFixed(2) : 'NoAmount';
 
                     if (amountKey === 'NoAmount' || customerKey === 'NoCustomer') continue;
 
@@ -64,30 +65,45 @@ export class DuplicateInvoicesRule implements IRule {
             .withEnrichment((detected: { findings: any[][] }) => {
                 return detected.findings.map((cluster) => {
                     const first = cluster[0];
-                    const amount = first.qboData.TotalAmt || 0;
+
+                    // --- CRITICAL FIX: Safely extract plain number and Prisma Decimal ---
+                    const rawTotalAmt = first.qboData.TotalAmt;
+                    const plainExposureAmount = typeof rawTotalAmt?.toNumber === 'function'
+                        ? rawTotalAmt.toNumber()
+                        : Number(rawTotalAmt || 0);
+
+                    const decimalAmount = new Prisma.Decimal(plainExposureAmount);
+                    const currency = first.qboData.CurrencyRef?.value || 'USD';
 
                     const fingerprint = generateFingerprint([this.id, ...cluster.map(c => c.qbId)]);
-
-                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, amount / 1000)));
+                    const impactScore = Math.min(100, Math.round(30 * Math.min(2, plainExposureAmount / 1000)));
 
                     return {
                         id: cluster.map(c => c.qbId).join(','),
                         label: 'Duplicate Invoice Cluster',
                         fingerprint,
                         impactScore,
-                        amount,
-                        currency: first.qboData.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: decimalAmount,
+                        currency: currency,
+
                         date: new Date(first.qboData.TxnDate || first.date),
                         deepLink: cluster.map(c =>
                             buildQboDeepLink('invoice', realmId, c.qbId)
-                        ).join(','), metadata: {
+                        ).join(','),
+                        metadata: {
                             customerId: first.qboData.CustomerRef?.value,
-                            clusterIds: cluster.map(c => c.qbId)
+                            clusterIds: cluster.map(c => c.qbId),
+
+                            // --- ADD THESE FOR PIPELINE AGGREGATION & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: cluster.map((c: any) => ({
                             id: c.qbId,
                             type: 'Invoice',
-                            amount,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
                             date: new Date(c.qboData.TxnDate || c.date)
                         }))
                     };

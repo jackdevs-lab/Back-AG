@@ -1,4 +1,5 @@
-﻿import { z } from 'zod';
+﻿import { Prisma } from '@qb-health/financial-model';
+import { z } from 'zod';
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -121,19 +122,29 @@ export class DeletedAccountReferenceRule implements IRule {
                         case 'journalentry': qboPath = 'journal'; break;
                         case 'bill': qboPath = 'bill'; break;
                         case 'deposit': qboPath = 'deposit'; break;
-                        case 'purchase': qboPath = 'purchase'; break;   // ← see note below
+                        case 'purchase': qboPath = 'expense'; break; // Updated to 'expense' for purchases/checks
                         case 'invoice': qboPath = 'invoice'; break;
                         case 'payment': qboPath = 'recvpayment'; break;
                         case 'vendorcredit': qboPath = 'vendorcredit'; break;
                     }
 
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.txn.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
+
+                    const currency = f.txn.rawData?.CurrencyRef?.value || 'USD';
 
                     return {
                         id: f.txn.qbId,
                         label: `${f.txn.type || 'Transaction'} ${f.txn.qbId} - References deleted account \`${f.accountId}\``,
                         date: new Date(f.txn.date),
-                        amount: f.txn.amount,
-                        currency: f.txn.rawData?.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         deepLink: buildQboDeepLink(qboPath, realmId, f.txn.qbId),
                         metadata: {
                             accountId: f.accountId,
@@ -141,7 +152,17 @@ export class DeletedAccountReferenceRule implements IRule {
                             txnType: f.txn.type,
                             impactScore: 80,
                             fingerprint: generateFingerprint([f.txn.qbId, f.accountId]),
-                        }
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
+                        },
+                        entities: [{
+                            id: f.txn.qbId,
+                            type: f.txn.type,
+                            amount: plainExposureAmount,
+                            date: new Date(f.txn.date)
+                        }]
                     };
                 });
             })

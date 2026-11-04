@@ -1,5 +1,6 @@
 ﻿// rule.ts
 import { z } from 'zod';
+import { Prisma } from '@qb-health/financial-model'; // <-- ADDED IMPORT
 
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
@@ -30,7 +31,7 @@ type NormalizationResult = {
 type DuplicateGroup = {
     vendorId: string;
     docNumber: string;
-    amount: any;
+    amount: number;
     currency: string;
     bills: NormalizedBill[];
 };
@@ -73,7 +74,7 @@ export class DuplicateVendorBillsRule implements IRule {
                     if (!docNumber) continue;
 
                     const vendor = bill.qboData.VendorRef?.value || bill.vendorId || 'NO_VENDOR';
-                    const amount = Math.abs(Number(bill.qboData.Balance || bill.amount)).toFixed(2);
+                    const amount = Math.abs(Number(bill.qboData.Balance || bill.amount || 0)).toFixed(2);
                     const currency = (bill.qboData.CurrencyRef?.value || 'USD').toUpperCase();
 
                     const key = `${vendor}|${docNumber}|${amount}|${currency}`;
@@ -89,7 +90,7 @@ export class DuplicateVendorBillsRule implements IRule {
                     .map(group => ({
                         vendorId: group[0].qboData.VendorRef?.value || group[0].vendorId || 'NO_VENDOR',
                         docNumber: group[0].qboData.DocNumber || 'UNKNOWN',
-                        amount: group[0].qboData.Balance || group[0].amount,
+                        amount: Number(group[0].qboData.Balance || group[0].amount || 0),
                         currency: group[0].qboData.CurrencyRef?.value || 'USD',
                         bills: group
                     }));
@@ -101,32 +102,40 @@ export class DuplicateVendorBillsRule implements IRule {
                     const billIds = duplicate.bills.map(b => b.qbId).sort();
                     const fingerprint = generateFingerprint([this.id, ...billIds]);
 
-                    // One finding = N duplicate bills. Emit every bill's URL
-                    // in metadata (array) so the UI can render a multi-link
-                    // view later, AND promote the first URL to the scalar
-                    // `deepLink` field so the pipeline/worker/UI can render
-                    // a clickable primary link today.
                     const billLinks = duplicate.bills.map(
                         b => buildQboDeepLink('bill', realmId, b.qbId)
                     );
+
+                    // 1. Calculate plain number for metadata/API
+                    const plainExposureAmount = Number(duplicate.amount || 0);
+
+                    // 2. Create Prisma.Decimal to satisfy EnrichedFindingSchema
+                    const decimalExposureAmount = new Prisma.Decimal(plainExposureAmount);
 
                     return {
                         id: fingerprint,
                         label: `Duplicate Bill for Vendor ${duplicate.vendorId}`,
                         date: duplicate.bills[0].date,
-                        amount: duplicate.amount,
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: decimalExposureAmount,
                         currency: duplicate.currency,
+
                         metadata: {
                             vendorId: duplicate.vendorId,
                             docNumber: duplicate.docNumber,
                             fingerprint: fingerprint,
                             duplicateCount: duplicate.bills.length,
-                            billLinks
+                            billLinks,
+
+                            // Plain number for clean JSON serialization to the frontend
+                            exposureAmount: plainExposureAmount,
+                            currency: duplicate.currency
                         },
                         entities: duplicate.bills.map(b => ({
                             qbId: b.qbId,
                             date: b.date,
-                            amount: b.qboData.Balance || b.amount
+                            amount: Number(b.qboData.Balance || b.amount || 0)
                         })),
                         deepLink: billLinks[0]
                     };

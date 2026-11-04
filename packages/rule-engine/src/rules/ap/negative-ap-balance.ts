@@ -7,6 +7,8 @@ import { BillRawSchema, EnrichedFinding } from '../../core/shared/base-schemas';
 import { generateFingerprint } from '../../core/shared/utils';
 import { formatSummary } from '../../core/report/negative-ap-balance';
 import { buildQboDeepLink } from '../../core/shared/deeplink';
+import { Prisma } from '@qb-health/financial-model';
+
 
 type NormalizedBill = any & { qboData: z.infer<typeof BillRawSchema> };
 type NormalizationOutput = { normalized: NormalizedBill[]; unscannable: any[] };
@@ -59,26 +61,39 @@ export class NegativeApBalanceRule implements IRule {
             .withEnrichment((detected: DetectionOutput, ctx: RuleContext): EnrichedFinding[] => {
                 return detected.findings.map((f: NormalizedBill): EnrichedFinding => {
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const amount = f.qboData.Balance;
                     const vendorName = f.qboData.VendorRef?.name || 'Unknown Vendor';
+                    const currency = f.qboData.CurrencyRef?.value || 'USD';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount (use absolute value for exposure) ---
+                    const rawBalance = f.qboData.Balance || 0;
+                    const plainExposureAmount = typeof rawBalance?.toNumber === 'function'
+                        ? Math.abs(rawBalance.toNumber())
+                        : Math.abs(Number(rawBalance || 0));
 
                     return {
                         id: f.qbId,
                         label: `Negative Balance on Bill ${f.qboData.DocNumber || f.qbId} for ${vendorName}`,
                         date: new Date(f.date),
-                        amount: amount,
-                        currency: f.qboData.CurrencyRef?.value || 'USD',
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
+                        currency: currency,
+
                         metadata: {
                             fingerprint,
                             vendorId: f.vendorId,
                             vendorName: vendorName,
-                            docNumber: f.qboData.DocNumber
+                            docNumber: f.qboData.DocNumber,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
                         entities: [
                             {
-                                id: f.vendorId,
+                                id: f.vendorId || f.qbId, // Fallback to qbId if vendorId is missing
                                 type: 'Vendor',
-                                balance: amount
+                                balance: plainExposureAmount // Use plain positive number for clean JSON
                             }
                         ],
                         deepLink: buildQboDeepLink('bill', realmId, f.qbId)

@@ -1,4 +1,6 @@
 // rule.ts
+import { Prisma } from '@qb-health/financial-model';
+
 import { IRule, RuleContext, RuleExecutionResult, RuleId } from '../../types';
 import { PipelineRunner } from '../../core/pipeline-runner';
 import { generateFingerprint } from '../../core/shared/utils';
@@ -111,30 +113,41 @@ export class OrphanedBillPaymentRule implements IRule {
             .withEnrichment((det: DetectionResult): EnrichedFinding[] => {
                 return det.findings.map((f: DetectedTx): EnrichedFinding => {
                     const fingerprint = generateFingerprint([this.id, f.qbId]);
-                    const amount = f.qboData.TotalAmt || f.amount || 0;
                     const currency = f.qboData.CurrencyRef?.value || 'USD';
                     const vendorName = f.qboData.VendorRef?.name || 'Unidentified Vendor';
+
+                    // --- CRITICAL FIX: Safely extract and convert amount ---
+                    const rawAmount = f.qboData.TotalAmt || f.amount || 0;
+                    const plainExposureAmount = typeof rawAmount?.toNumber === 'function'
+                        ? rawAmount.toNumber()
+                        : Number(rawAmount || 0);
 
                     return {
                         id: f.qbId,
                         label: `${vendorName} - Payment`,
                         date: new Date(f.date),
-                        amount: amount,
+
+                        // Satisfies EnrichedFindingSchema (expects Prisma.Decimal)
+                        amount: new Prisma.Decimal(plainExposureAmount),
                         currency: currency,
+
+                        deepLink: buildQboDeepLink('billpayment', realmId, f.qbId),
                         metadata: {
                             fingerprint,
                             missingBillIds: f.missingBillIds,
-                            vendorId: f.qboData.VendorRef?.value || f.vendorId
+                            vendorId: f.qboData.VendorRef?.value || f.vendorId,
+
+                            // --- NEW: Add these for database save & API ---
+                            exposureAmount: plainExposureAmount,
+                            currency: currency
                         },
-                        ...({ fingerprint }),
                         entities: [{
                             id: f.qbId,
                             type: 'BillPayment',
-                            amount,
+                            amount: plainExposureAmount, // Use plain number for clean JSON
                             currency,
                             date: new Date(f.date)
-                        }],
-                        deepLink: buildQboDeepLink('billpayment', realmId, f.qbId)
+                        }]
                     };
                 });
             })

@@ -28,6 +28,7 @@ type IssueRow = {
     severity: string;
     message: string;
     deepLink: string | null;
+    metadata: any;
 };
 
 type IssueEntityRow = {
@@ -117,6 +118,7 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
                 severity: issue.severity,
                 message: truncateMessage(perFindingMessage),
                 deepLink: typeof issue.deepLink === 'string' ? issue.deepLink : null,
+                metadata: issue.metadata || null,
             });
 
             const list = Array.isArray(issue.entities) ? issue.entities : [];
@@ -172,6 +174,8 @@ export async function analysisProcessor(job: Job<AnalysisJobData>): Promise<{
             status: check.status,
             message: truncateMessage(check.message),
             durationMs: check.durationMs,
+            ruleExposureAmount: check.ruleExposureAmount ?? null,
+            currency: check.currency ?? null,
         }));
 
         for (const row of checkRows) {
