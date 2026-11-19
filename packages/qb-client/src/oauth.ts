@@ -103,7 +103,7 @@ export class OAuthService {
         const tokenExpiry = new Date(Date.now() + tokenData.expires_in * 1000);
 
         const isDemoSandbox = realmId === process.env.INTUIT_DEMO_REALM_ID;
-        const defaultSubscriptionStatus = 'ACTIVE';
+        const defaultSubscriptionStatus = 'INACTIVE';
 
         logger.info('Saving QuickBooks connection...', { tenantId, realmId, isDemoSandbox });
 

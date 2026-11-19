@@ -123,8 +123,6 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
         }
 
         // 1. Fetch the latest fully completed diagnostic run.
-        //    Issues include only a _count of the entities relation — we never
-        //    need the entity rows themselves on this endpoint.
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
                 tenantId,
@@ -176,8 +174,6 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             : 0;
 
         // Fallback logic if metadata is incomplete.
-        // Uses _count instead of loading the entities relation so we never
-        // materialise entity rows just to compute a total.
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
@@ -255,17 +251,23 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     totalEntities: totalEntities ?? 0,
                     totalExposure: totalExposureStr
                 },
-                // Conditional inclusion based on lock status
+                // ✅ UPDATED: Keep checks locked, but ALWAYS return the issues array for the teaser table
                 checks: isLocked ? [] : latestRun.checks,
-                issues: isLocked ? [] : latestRun.issues.map(issue => ({
-                    id: issue.id,
-                    ruleId: issue.ruleId,
-                    ruleName: issue.ruleName,
-                    severity: issue.severity,
-                    message: issue.message,
-                    entityCount: issue._count.entities,
-                    isResolved: issue.isResolved
-                }))
+                issues: latestRun.issues.map(issue => {
+                    const meta = (issue.metadata as any) || {};
+                    return {
+                        id: issue.id,
+                        ruleId: issue.ruleId,
+                        ruleName: issue.ruleName,
+                        severity: issue.severity,
+                        message: issue.message,
+                        entityCount: issue._count.entities,
+                        isResolved: issue.isResolved,
+                        // ✅ NEW: Expose teaser exposure data to the frontend
+                        exposureAmount: Number(meta.exposureAmount ?? 0),
+                        currency: meta.currency ?? 'USD',
+                    };
+                })
             }
         });
     } catch (error) {
