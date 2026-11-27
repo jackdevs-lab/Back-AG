@@ -122,7 +122,8 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             throw new AppError('Connection not found', 404);
         }
 
-        // 1. Fetch the latest fully completed diagnostic run.
+        // 1. Fetch latest completed run + issues + entity IDs
+        //    `entities: true` fetches IssueEntity rows (IDs only — hydrated below)
         const latestRun = await prisma.diagnosticRun.findFirst({
             where: {
                 tenantId,
@@ -135,6 +136,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     orderBy: { severity: 'desc' },
                     take: 50,
                     include: {
+                        entities: true,
                         _count: { select: { entities: true } },
                     },
                 },
@@ -154,7 +156,61 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             });
         }
 
-        // 2. Prepare the summary/teaser metadata
+        // 2. Bulk-hydrate entity details from Transaction table.
+        //    Hits unique index (tenantId, realmId, qbId) — fast even at thousands of IDs.
+        //    Q1 confirmed 99.6% join rate; the ~0.4% miss falls back to Issue.deepLink.
+        const allEntityIds = Array.from(
+            new Set(latestRun.issues.flatMap(i => i.entities.map(e => e.entityId)))
+        );
+
+        const transactions = allEntityIds.length > 0
+            ? await prisma.transaction.findMany({
+                where: {
+                    tenantId,
+                    realmId: connection.realmId,
+                    qbId: { in: allEntityIds },
+                },
+                select: {
+                    qbId: true,
+                    type: true,
+                    amount: true,
+                    date: true,
+                },
+            })
+            : [];
+
+        const txMap = new Map(transactions.map(t => [t.qbId, t]));
+
+        // 3. QBO deep-link builder.
+        //    QBO's rawData has no native link field, so we construct from type + qbId + realmId.
+        const QBO_SLUGS: Record<string, string> = {
+            Bill: 'bill',
+            Invoice: 'invoice',
+            Payment: 'recvpayment',
+            BillPayment: 'billpayment',
+            Deposit: 'deposit',
+            Transfer: 'transfer',
+            JournalEntry: 'journal',
+            CreditMemo: 'creditmemo',
+            Estimate: 'estimate',
+            Purchase: 'purchase',
+            PurchaseOrder: 'purchaseorder',
+            SalesReceipt: 'salesreceipt',
+            RefundReceipt: 'refundreceipt',
+            VendorCredit: 'vendorcredit',
+        };
+
+        const qboHost = connection.isSandbox
+            ? 'https://sandbox.qbo.intuit.com'
+            : 'https://qbo.intuit.com';
+
+        const buildQboLink = (type: string | null | undefined, qbId: string): string => {
+            const slug = QBO_SLUGS[type ?? ''] ?? 'search';
+            const param = slug === 'search' ? `id=${qbId}` : `txnId=${qbId}`;
+            return `${qboHost}/app/${slug}?realmId=${connection.realmId}&${param}`;
+        };
+
+        // 4. Summary/teaser metadata
         const metadata = (latestRun.metadata as any) || {};
         let criticalCount: number | undefined = metadata.criticalCount;
         let warningCount: number | undefined = metadata.warningCount;
@@ -173,7 +229,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
             ? (criticalCount! + warningCount! + infoCount!)
             : 0;
 
-        // Fallback logic if metadata is incomplete.
+        // Fallback: recompute metadata if incomplete
         if (!isMetadataComplete) {
             const allIssuesSummary = await prisma.issue.findMany({
                 where: { runId: latestRun.id },
@@ -195,7 +251,7 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 new Map(allIssuesSummary.map(issue => [issue.ruleId, issue.message])).values()
             );
 
-            const totalExposureValue = uniqueRuleMessages.reduce((sum, message) => {
+            const computedExposure = uniqueRuleMessages.reduce((sum, message) => {
                 const match = message.match(/(?:total exposure of|exposure:)\s*\$?([\d,.]+(?:\.\d{2})?)/i);
                 if (match) {
                     return sum + parseFloat(match[1].replace(/,/g, ''));
@@ -203,21 +259,37 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 return sum;
             }, 0);
 
-            totalExposureStr = `$${totalExposureValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            totalExposureStr = `$${computedExposure.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+            // ✅ Preserve existing metadata fields on self-heal (previously overwritten)
             await prisma.diagnosticRun.update({
                 where: { id: latestRun.id },
                 data: {
                     metadata: {
+                        ...metadata,
                         criticalCount,
                         warningCount,
                         infoCount,
                         entitiesAffected: totalEntities,
-                        totalExposure: totalExposureStr
+                        totalExposure: totalExposureStr,
                     }
                 }
             }).catch(err => console.error('Failed to self-heal diagnostic run metadata:', err));
         }
+
+        // 5. Numeric exposure + currency for reliable frontend formatting
+        const totalExposureNumeric = (() => {
+            if (!totalExposureStr) return 0;
+            const match = totalExposureStr.match(/[\d,.]+/);
+            return match ? parseFloat(match[0].replace(/,/g, '')) : 0;
+        })();
+
+        const totalExposureCurrency: string =
+            metadata.currency ??
+            latestRun.issues
+                .map(i => (i.metadata as any)?.currency)
+                .find((c): c is string => typeof c === 'string' && c.length > 0) ??
+            'USD';
 
         const scoreBreakdown = HealthScoreCalculator.calculate(latestRun.checks as any);
         const isLocked = connection.subscriptionStatus !== 'ACTIVE';
@@ -242,6 +314,9 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                 totalEntities: totalEntities ?? 0,
                 affectedEntitiesCount: totalEntities ?? 0,
                 totalExposure: totalExposureStr,
+                // ✅ NEW: numeric + currency so frontend doesn't regex-parse a $-string
+                totalExposureValue: totalExposureNumeric,
+                totalExposureCurrency,
                 summary: {
                     totalIssues: issueCount,
                     criticalCount: criticalCount ?? 0,
@@ -249,12 +324,38 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                     infoCount: infoCount ?? 0,
                     affectedEntitiesCount: totalEntities ?? 0,
                     totalEntities: totalEntities ?? 0,
-                    totalExposure: totalExposureStr
+                    totalExposure: totalExposureStr,
+                    totalExposureValue: totalExposureNumeric,
+                    totalExposureCurrency,
                 },
-                // ✅ UPDATED: Keep checks locked, but ALWAYS return the issues array for the teaser table
                 checks: isLocked ? [] : latestRun.checks,
                 issues: latestRun.issues.map(issue => {
                     const meta = (issue.metadata as any) || {};
+
+                    // ✅ Hydrate + dedupe entities by entityId.
+                    //    Matched → full type/amount/date/deepLink from Transaction.
+                    //    Unmatched (~0.4%, mostly BROKEN_TRANSACTION_LINK targets) →
+                    //    gracefully degrades to Issue.deepLink.
+                    const hydratedEntities = Array.from(
+                        new Map(
+                            issue.entities.map(e => {
+                                const tx = txMap.get(e.entityId);
+                                return [
+                                    e.entityId,
+                                    {
+                                        id: e.entityId,
+                                        type: tx?.type ?? 'Record',
+                                        amount: tx ? Number(tx.amount) : 0,
+                                        date: tx?.date ? tx.date.toISOString() : null,
+                                        deepLink: tx
+                                            ? buildQboLink(tx.type, e.entityId)
+                                            : (issue.deepLink ?? null),
+                                    },
+                                ] as const;
+                            })
+                        ).values()
+                    );
+
                     return {
                         id: issue.id,
                         ruleId: issue.ruleId,
@@ -263,9 +364,12 @@ router.get('/latest/:connectionId', async (req: AuthRequest, res: Response, next
                         message: issue.message,
                         entityCount: issue._count.entities,
                         isResolved: issue.isResolved,
-                        // ✅ NEW: Expose teaser exposure data to the frontend
                         exposureAmount: Number(meta.exposureAmount ?? 0),
                         currency: meta.currency ?? 'USD',
+                        // ✅ NEW: per-issue link (used as fallback for unmatched entities)
+                        deepLink: issue.deepLink ?? null,
+                        // ✅ NEW: full per-entity detail — powers the drawer
+                        entities: hydratedEntities,
                     };
                 })
             }
